@@ -22,12 +22,14 @@ import {
 } from 'lucide-react';
 import { db } from '../db';
 import { triggerPrint } from '../services/printer';
+import { useModal } from '../context/ModalContext';
 import type { RepairTicket, RepairStatus, StoreSettings } from '../types';
 
 export const MaintenanceView: React.FC<{ activeShiftId: string; cashierName: string }> = ({
   activeShiftId,
   cashierName,
 }) => {
+  const { showAlert, showConfirm, showToast } = useModal();
   const repairs = useLiveQuery(() => db.repairs.orderBy('receivedAt').reverse().toArray()) || [];
   const settings = useLiveQuery(() => db.settings.get(1));
 
@@ -60,7 +62,7 @@ export const MaintenanceView: React.FC<{ activeShiftId: string; cashierName: str
   const handleCreateTicket = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customerName || !customerPhone || !deviceModel || !problemDescription) {
-      alert('يرجى ملء الحقول الأساسية: العميل، الهاتف، نوع الجهاز، ووصف العطل.');
+      showAlert('يرجى ملء الحقول الأساسية: العميل، الهاتف، نوع الجهاز، ووصف العطل.', 'بيانات ناقصة', 'warning');
       return;
     }
 
@@ -389,8 +391,14 @@ export const MaintenanceView: React.FC<{ activeShiftId: string; cashierName: str
                       <button
                         type="button"
                         onClick={async () => {
-                          if (confirm(`حذف تذكرة الصيانة #${r.ticketNumber}؟`)) {
+                          const confirmed = await showConfirm(
+                            `هل أنت متأكد من حذف تذكرة الصيانة #${r.ticketNumber} الخاصة بالعميل (${r.customerName})؟`,
+                            'تأكيد حذف تذكرة صيانة',
+                            { confirmText: 'حذف التذكرة', cancelText: 'إلغاء', danger: true }
+                          );
+                          if (confirmed) {
                             await db.repairs.delete(r.id);
+                            showToast(`تم حذف تذكرة الصيانة #${r.ticketNumber}`);
                           }
                         }}
                         title="حذف التذكرة"

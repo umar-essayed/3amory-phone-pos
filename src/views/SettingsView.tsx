@@ -5,27 +5,25 @@ import {
   Upload,
   Phone,
   Printer,
-  Cloud,
   FileText,
   Save,
   CheckCircle2,
-  RefreshCw,
   Download,
-  AlertTriangle,
-  RotateCcw,
   ShieldAlert,
+  RotateCcw,
+  Cloud,
 } from 'lucide-react';
-import { db, DEFAULT_SETTINGS } from '../db';
-import { syncDataToFirebase } from '../services/firebase';
+import { db } from '../db';
+import { useModal } from '../context/ModalContext';
 import type { StoreSettings } from '../types';
 
 export const SettingsView: React.FC = () => {
   const currentSettings = useLiveQuery(() => db.settings.get(1));
+  const { showAlert, showConfirm, showToast } = useModal();
+
   const [formData, setFormData] = useState<StoreSettings | null>(null);
   const [savedSuccess, setSavedSuccess] = useState(false);
-  const [syncLoading, setSyncLoading] = useState(false);
-  const [syncMessage, setSyncMessage] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'store' | 'receipt' | 'firebase' | 'backup'>('store');
+  const [activeTab, setActiveTab] = useState<'store' | 'receipt' | 'backup'>('store');
 
   useEffect(() => {
     if (currentSettings) {
@@ -34,7 +32,7 @@ export const SettingsView: React.FC = () => {
   }, [currentSettings]);
 
   if (!formData) {
-    return <div className="p-8 text-center text-slate-500">جاري تحميل إعدادات المحل...</div>;
+    return <div className="p-8 text-center text-slate-500 font-bold">جاري تحميل إعدادات المحل...</div>;
   }
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -43,6 +41,7 @@ export const SettingsView: React.FC = () => {
       const reader = new FileReader();
       reader.onload = () => {
         setFormData({ ...formData, logoUrl: reader.result as string });
+        showToast('تم رفع ومعاينة الشعار الجديد بنجاح');
       };
       reader.readAsDataURL(file);
     }
@@ -52,15 +51,8 @@ export const SettingsView: React.FC = () => {
     e.preventDefault();
     await db.settings.put(formData);
     setSavedSuccess(true);
+    showToast('تم حفظ إعدادات وهوية المحل بنجاح', 'success');
     setTimeout(() => setSavedSuccess(false), 3000);
-  };
-
-  const handleSyncNow = async () => {
-    setSyncLoading(true);
-    setSyncMessage(null);
-    const res = await syncDataToFirebase();
-    setSyncLoading(false);
-    setSyncMessage(res.message);
   };
 
   const handleExportBackup = async () => {
@@ -87,66 +79,87 @@ export const SettingsView: React.FC = () => {
     a.download = `mobile_pos_backup_${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
+    showToast('تم تصدير النسخة الاحتياطية وتنزيلها بأمان');
   };
 
-  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!confirm('تحذير هام: استعادة النسخة الاحتياطية ستستبدل البيانات الحالية. هل أنت متأكد من المتابعة؟')) {
-      return;
-    }
+    const confirmed = await showConfirm(
+      'تحذير هام: استعادة النسخة الاحتياطية ستستبدل البيانات الحالية في النظام.\nهل أنت متأكد من المتابعة؟',
+      'تأكيد استعادة النسخة الاحتياطية',
+      { confirmText: 'نعم، استعد البيانات', cancelText: 'إلغاء', danger: true }
+    );
+
+    if (!confirmed) return;
 
     const reader = new FileReader();
     reader.onload = async () => {
       try {
-        const imported = JSON.parse(reader.result as string);
-        await db.transaction('rw', db.tables, async () => {
-          if (imported.settings) {
-            await db.settings.clear();
-            await db.settings.bulkAdd(imported.settings);
+        const data = JSON.parse(reader.result as string);
+        await db.transaction(
+          'rw',
+          [
+            db.settings,
+            db.users,
+            db.phones,
+            db.accessories,
+            db.wallets,
+            db.walletTransactions,
+            db.invoices,
+            db.repairs,
+            db.shifts,
+            db.expenses,
+            db.customers,
+            db.suppliers,
+          ],
+          async () => {
+            if (data.settings?.length) {
+              await db.settings.clear();
+              await db.settings.bulkPut(data.settings);
+            }
+            if (data.users?.length) {
+              await db.users.clear();
+              await db.users.bulkPut(data.users);
+            }
+            if (data.phones?.length) {
+              await db.phones.clear();
+              await db.phones.bulkPut(data.phones);
+            }
+            if (data.accessories?.length) {
+              await db.accessories.clear();
+              await db.accessories.bulkPut(data.accessories);
+            }
+            if (data.wallets?.length) {
+              await db.wallets.clear();
+              await db.wallets.bulkPut(data.wallets);
+            }
+            if (data.invoices?.length) {
+              await db.invoices.clear();
+              await db.invoices.bulkPut(data.invoices);
+            }
+            if (data.repairs?.length) {
+              await db.repairs.clear();
+              await db.repairs.bulkPut(data.repairs);
+            }
+            if (data.shifts?.length) {
+              await db.shifts.clear();
+              await db.shifts.bulkPut(data.shifts);
+            }
+            if (data.customers?.length) {
+              await db.customers.clear();
+              await db.customers.bulkPut(data.customers);
+            }
+            if (data.suppliers?.length) {
+              await db.suppliers.clear();
+              await db.suppliers.bulkPut(data.suppliers);
+            }
           }
-          if (imported.users) {
-            await db.users.clear();
-            await db.users.bulkAdd(imported.users);
-          }
-          if (imported.phones) {
-            await db.phones.clear();
-            await db.phones.bulkAdd(imported.phones);
-          }
-          if (imported.accessories) {
-            await db.accessories.clear();
-            await db.accessories.bulkAdd(imported.accessories);
-          }
-          if (imported.wallets) {
-            await db.wallets.clear();
-            await db.wallets.bulkAdd(imported.wallets);
-          }
-          if (imported.walletTransactions) {
-            await db.walletTransactions.clear();
-            await db.walletTransactions.bulkAdd(imported.walletTransactions);
-          }
-          if (imported.invoices) {
-            await db.invoices.clear();
-            await db.invoices.bulkAdd(imported.invoices);
-          }
-          if (imported.repairs) {
-            await db.repairs.clear();
-            await db.repairs.bulkAdd(imported.repairs);
-          }
-          if (imported.shifts) {
-            await db.shifts.clear();
-            await db.shifts.bulkAdd(imported.shifts);
-          }
-          if (imported.expenses) {
-            await db.expenses.clear();
-            await db.expenses.bulkAdd(imported.expenses);
-          }
-        });
-        alert('تمت استعادة البيانات والنسخة الاحتياطية بنجاح!');
-        window.location.reload();
+        );
+        await showAlert('تمت استعادة البيانات والنسخة الاحتياطية بنجاح!', 'تمت العملية', 'success');
       } catch (err) {
-        alert('حدث خطأ أثناء قراءة ملف النسخة الاحتياطية.');
+        await showAlert('حدث خطأ أثناء قراءة ملف النسخة الاحتياطية. يرجى التأكد من صحة الملف.', 'فشلت الاستعادة', 'error');
       }
     };
     reader.readAsText(file);
@@ -161,9 +174,9 @@ export const SettingsView: React.FC = () => {
             <Store className="h-7 w-7" />
           </div>
           <div>
-            <h1 className="text-2xl font-black text-slate-800">تخصيص وإعدادات المحل</h1>
+            <h1 className="font-display text-2xl font-black text-slate-800">تخصيص وهوية المحل</h1>
             <p className="text-sm text-slate-500">
-              تحكم كامل في هوية وشعار المحل، الفواتير، الطباعة، وربط السحابة والنسخ الاحتياطي
+              تحكم كامل في اسم المحل، اللوجو، الفواتير، الطباعة الحرارية، والنسخ الاحتياطي
             </p>
           </div>
         </div>
@@ -180,26 +193,26 @@ export const SettingsView: React.FC = () => {
       {savedSuccess && (
         <div className="flex items-center gap-3 rounded-xl bg-emerald-50 border border-emerald-200 p-4 text-emerald-800">
           <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-          <span className="font-semibold text-sm">تم حفظ وتحديث إعدادات المحل بنجاح! سيتم تطبيقها فوراً على كل شاشات وفواتير النظام.</span>
+          <span className="font-semibold text-sm">تم حفظ إعدادات المحل بنجاح وتطبيقها في جميع الشاشات.</span>
         </div>
       )}
 
-      {/* Settings Navigation Tabs */}
+      {/* Navigation Tabs */}
       <div className="flex border-b border-slate-200 bg-white rounded-t-2xl px-4 pt-2 gap-2 overflow-x-auto">
         <button
           onClick={() => setActiveTab('store')}
-          className={`flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-bold transition whitespace-nowrap ${
+          className={`flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-bold transition whitespace-nowrap cursor-pointer ${
             activeTab === 'store'
               ? 'border-blue-600 text-blue-600'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
           <Store className="h-4 w-4" />
-          <span>بيانات وهوية المحل (White-label)</span>
+          <span>بيانات وهوية المحل</span>
         </button>
         <button
           onClick={() => setActiveTab('receipt')}
-          className={`flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-bold transition whitespace-nowrap ${
+          className={`flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-bold transition whitespace-nowrap cursor-pointer ${
             activeTab === 'receipt'
               ? 'border-blue-600 text-blue-600'
               : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -209,234 +222,220 @@ export const SettingsView: React.FC = () => {
           <span>إعدادات الفواتير والطباعة</span>
         </button>
         <button
-          onClick={() => setActiveTab('firebase')}
-          className={`flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-bold transition whitespace-nowrap ${
-            activeTab === 'firebase'
-              ? 'border-blue-600 text-blue-600'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Cloud className="h-4 w-4" />
-          <span>سحابة Firebase والمزامنة</span>
-        </button>
-        <button
           onClick={() => setActiveTab('backup')}
-          className={`flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-bold transition whitespace-nowrap ${
+          className={`flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-bold transition whitespace-nowrap cursor-pointer ${
             activeTab === 'backup'
               ? 'border-blue-600 text-blue-600'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
           <Download className="h-4 w-4" />
-          <span>النسخ الاحتياطي واستعادة البيانات</span>
+          <span>النسخ الاحتياطي والأمان</span>
         </button>
       </div>
 
-      <div className="bg-white p-6 rounded-b-2xl shadow-xs border border-t-0 border-slate-200">
-        {/* TAB 1: STORE & IDENTITY */}
+      {/* Tab Contents */}
+      <div className="bg-white rounded-b-2xl p-6 shadow-xs border-x border-b border-slate-200">
+        {/* TAB 1: STORE INFO */}
         {activeTab === 'store' && (
           <form onSubmit={handleSave} className="space-y-6">
-            <div className="border-b pb-6">
-              <h3 className="text-base font-bold text-slate-800 mb-1">شعار المحل (Logo)</h3>
-              <p className="text-xs text-slate-500 mb-4">يظهر الشعار في أعلى الفواتير الحرارية، كروت الصيانة، وشريط النظام العلوي.</p>
-              
-              <div className="flex flex-col sm:flex-row items-center gap-6">
-                <div className="relative h-28 w-28 rounded-2xl border-2 border-dashed border-slate-300 p-2 flex items-center justify-center bg-slate-50 overflow-hidden shadow-inner">
-                  {formData.logoUrl ? (
-                    <img src={formData.logoUrl} alt="Store Logo" className="max-h-full max-w-full object-contain" />
-                  ) : (
-                    <Store className="h-10 w-10 text-slate-400" />
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <label className="flex items-center gap-2 rounded-xl bg-slate-100 hover:bg-slate-200 px-4 py-2.5 text-xs font-bold text-slate-700 cursor-pointer border border-slate-300 transition">
-                    <Upload className="h-4 w-4 text-blue-600" />
-                    <span>رفع لوجو المحل من الجهاز</span>
+            <div className="flex flex-col sm:flex-row items-center gap-6 p-4 rounded-2xl bg-slate-50 border border-slate-200">
+              <div className="relative h-24 w-24 rounded-2xl border-2 border-dashed border-slate-300 p-2 bg-white flex items-center justify-center overflow-hidden shadow-xs">
+                {formData.logoUrl ? (
+                  <img
+                    src={formData.logoUrl}
+                    alt="Logo"
+                    className="max-h-full max-w-full object-contain"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = '/logo-removebg-preview.png';
+                    }}
+                  />
+                ) : (
+                  <Store className="h-10 w-10 text-slate-300" />
+                )}
+              </div>
+
+              <div className="flex-1 text-center sm:text-right space-y-2">
+                <h4 className="font-bold text-sm text-slate-800">شعار المحل الافتراضي (Logo)</h4>
+                <p className="text-xs text-slate-500">
+                  يظهر هذا الشعار على رأس الفواتير الورقية وعقود البيع والشريط العلوي للنظام.
+                </p>
+                <div className="flex items-center justify-center sm:justify-start gap-3">
+                  <label className="inline-flex items-center gap-2 rounded-xl bg-white border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 cursor-pointer">
+                    <Upload className="h-3.5 w-3.5 text-blue-600" />
+                    <span>تغيير الشعار</span>
                     <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => setFormData({ ...formData, logoUrl: '/logo.jpeg' })}
-                    className="flex items-center gap-1.5 text-xs text-blue-600 hover:underline"
-                  >
-                    <RotateCcw className="h-3 w-3" />
-                    <span>استعادة اللوجو الافتراضي</span>
-                  </button>
+                  {formData.logoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, logoUrl: '/logo-removebg-preview.png' })}
+                      className="text-xs font-bold text-slate-500 hover:text-red-600 cursor-pointer"
+                    >
+                      استعادة الشعار الافتراضي
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">اسم المحل (بالعربي)</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">اسم المحل باللغة العربية *</label>
                 <input
                   type="text"
                   value={formData.storeName}
                   onChange={(e) => setFormData({ ...formData, storeName: e.target.value })}
-                  placeholder="مثال: البرنس فون لتجارة الهواتف"
-                  className="w-full rounded-xl border border-slate-300 p-3 text-sm focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
+                  placeholder="مثال: البرنس لمهمات المحمول"
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-sm font-bold focus:border-blue-600 focus:outline-none"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">اسم المحل (بالإنجليزي - اختياري)</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">اسم المحل بالإنجليزية (اختياري)</label>
                 <input
                   type="text"
                   value={formData.storeNameEn}
                   onChange={(e) => setFormData({ ...formData, storeNameEn: e.target.value })}
-                  placeholder="مثال: El-Prince Mobile Store"
-                  className="w-full rounded-xl border border-slate-300 p-3 text-sm focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
+                  placeholder="Smart Mobile Store"
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-sm focus:border-blue-600 focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">رقم هاتف المحل الأساسي (كاشير/مبيعات)</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">رقم الهاتف الأساسي (خدمة العملاء) *</label>
                 <input
                   type="text"
                   value={formData.phone1}
                   onChange={(e) => setFormData({ ...formData, phone1: e.target.value })}
-                  placeholder="01012345678"
-                  className="w-full rounded-xl border border-slate-300 p-3 text-sm font-mono focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
-                  required
+                  placeholder="010xxxxxxxx"
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-sm font-mono focus:border-blue-600 focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">رقم هاتف إضافي (اختياري)</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">رقم الهاتف الإضافي / واتساب</label>
                 <input
                   type="text"
                   value={formData.phone2}
                   onChange={(e) => setFormData({ ...formData, phone2: e.target.value })}
-                  placeholder="01298765432"
-                  className="w-full rounded-xl border border-slate-300 p-3 text-sm font-mono focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">رقم الواتساب الرسمي لخدمة العملاء</label>
-                <input
-                  type="text"
-                  value={formData.whatsapp}
-                  onChange={(e) => setFormData({ ...formData, whatsapp: e.target.value })}
-                  placeholder="01012345678"
-                  className="w-full rounded-xl border border-slate-300 p-3 text-sm font-mono focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">العملة الافتراضية</label>
-                <input
-                  type="text"
-                  value={formData.currency}
-                  onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
-                  placeholder="ج.م"
-                  className="w-full rounded-xl border border-slate-300 p-3 text-sm focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
-                  required
+                  placeholder="011xxxxxxxx"
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-sm font-mono focus:border-blue-600 focus:outline-none"
                 />
               </div>
 
               <div className="md:col-span-2">
-                <label className="block text-xs font-bold text-slate-700 mb-1">عنوان المحل وموقعه الجغرافي</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">العنوان بالتفصيل</label>
                 <input
                   type="text"
                   value={formData.address}
                   onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  placeholder="مثال: القاهرة - شارع التحرير الرئيسي أمام محطة المترو"
-                  className="w-full rounded-xl border border-slate-300 p-3 text-sm focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
-                  required
+                  placeholder="المدينة - الشارع - علامة مميزة"
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-sm focus:border-blue-600 focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">رقم السجل التجاري (اختياري)</label>
-                <input
-                  type="text"
-                  value={formData.commercialReg}
-                  onChange={(e) => setFormData({ ...formData, commercialReg: e.target.value })}
-                  placeholder="987654"
-                  className="w-full rounded-xl border border-slate-300 p-3 text-sm font-mono focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">رقم البطاقة الضريبية (اختياري)</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">الرقم الضريبي (إن وجد)</label>
                 <input
                   type="text"
                   value={formData.taxNumber}
                   onChange={(e) => setFormData({ ...formData, taxNumber: e.target.value })}
                   placeholder="123-456-789"
-                  className="w-full rounded-xl border border-slate-300 p-3 text-sm font-mono focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-sm font-mono focus:border-blue-600 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">السجل التجاري (إن وجد)</label>
+                <input
+                  type="text"
+                  value={formData.commercialReg}
+                  onChange={(e) => setFormData({ ...formData, commercialReg: e.target.value })}
+                  placeholder="987654"
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-sm font-mono focus:border-blue-600 focus:outline-none"
                 />
               </div>
             </div>
           </form>
         )}
 
-        {/* TAB 2: RECEIPT & PRINTING */}
+        {/* TAB 2: RECEIPT SETTINGS */}
         {activeTab === 'receipt' && (
           <form onSubmit={handleSave} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-b pb-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">العملة الافتراضية</label>
+                <select
+                  value={formData.currency}
+                  onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-sm font-bold bg-white focus:border-blue-600 focus:outline-none"
+                >
+                  <option value="ج.م">جنيه مصري (ج.م)</option>
+                  <option value="ر.س">ريال سعودي (ر.س)</option>
+                  <option value="د.إ">درهم إماراتي (د.إ)</option>
+                  <option value="$">دولار ($)</option>
+                </select>
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">مقاس ورق الطابعة الحرارية</label>
                 <select
                   value={formData.paperSize}
                   onChange={(e) => setFormData({ ...formData, paperSize: e.target.value as any })}
-                  className="w-full rounded-xl border border-slate-300 p-3 text-sm font-bold bg-white focus:border-blue-600 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-sm font-bold bg-white focus:border-blue-600 focus:outline-none"
                 >
-                  <option value="80mm">80 ملم (طابعات الفواتير الكبيرة القياسية)</option>
-                  <option value="58mm">58 ملم (طابعات الفواتير الصغيرة المحمولة / البلوتوث)</option>
+                  <option value="80mm">طابعة كاشير 80 مم (الافتراضي والمعياري)</option>
+                  <option value="58mm">طابعة كاشير صغيرة 58 مم</option>
                 </select>
               </div>
 
-              <div className="space-y-3 pt-4">
-                <label className="flex items-center gap-3 cursor-pointer">
+              <div className="flex flex-col justify-center space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700">
                   <input
                     type="checkbox"
                     checked={formData.autoPrintReceipt}
                     onChange={(e) => setFormData({ ...formData, autoPrintReceipt: e.target.checked })}
-                    className="h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    className="h-4 w-4 rounded text-blue-600"
                   />
-                  <span className="text-sm font-bold text-slate-700">فتح نافذة الطباعة تلقائياً بمجرد إتمام البيع</span>
+                  <span>فتح نافذة الطباعة تلقائياً عند إتمام البيع</span>
                 </label>
-
-                <label className="flex items-center gap-3 cursor-pointer">
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700">
                   <input
                     type="checkbox"
                     checked={formData.showImeiOnReceipt}
                     onChange={(e) => setFormData({ ...formData, showImeiOnReceipt: e.target.checked })}
-                    className="h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    className="h-4 w-4 rounded text-blue-600"
                   />
-                  <span className="text-sm font-bold text-slate-700">إظهار رقم الـ IMEI أسفل اسم الهاتف في الفاتورة</span>
+                  <span>طباعة رقم الـ IMEI على فاتورة الهاتف</span>
                 </label>
               </div>
             </div>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">جملة الترحيب أعلى الفاتورة (Header)</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">رسالة الترحيب في رأس الفاتورة</label>
                 <input
                   type="text"
                   value={formData.receiptHeader}
                   onChange={(e) => setFormData({ ...formData, receiptHeader: e.target.value })}
-                  placeholder="أهلاً بكم في محلكم المفضل لخدمات ومبيعات الهواتف الذكية"
-                  className="w-full rounded-xl border border-slate-300 p-3 text-sm focus:border-blue-600 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-sm focus:border-blue-600 focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">جملة الشكر أسفل الفاتورة (Footer)</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">رسالة الشكر أسفل الفاتورة</label>
                 <input
                   type="text"
                   value={formData.receiptFooter}
                   onChange={(e) => setFormData({ ...formData, receiptFooter: e.target.value })}
-                  placeholder="شكراً لتعاملكم معنا ونتشرف بزيارتكم دائماً"
-                  className="w-full rounded-xl border border-slate-300 p-3 text-sm focus:border-blue-600 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-sm focus:border-blue-600 focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">سياسة الاستبدال والضمان (تظهر بأسفل الفاتورة)</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">ملاحظات وسياسة الاسترجاع بالفاتورة</label>
                 <textarea
                   rows={2}
                   value={formData.receiptNotes}
@@ -470,124 +469,7 @@ export const SettingsView: React.FC = () => {
           </form>
         )}
 
-        {/* TAB 3: FIREBASE CLOUD SYNC */}
-        {activeTab === 'firebase' && (
-          <div className="space-y-6">
-            <div className="flex items-start justify-between bg-blue-50 border border-blue-200 p-4 rounded-xl">
-              <div className="flex gap-3">
-                <Cloud className="h-6 w-6 text-blue-600 shrink-0 mt-0.5" />
-                <div>
-                  <h4 className="font-bold text-blue-900 text-sm">المزامنة السحابية عبر Firebase</h4>
-                  <p className="text-xs text-blue-700 mt-1">
-                    يعمل النظام <strong>أوفلاين 100%</strong> محلياً دون أي انقطاع. عند تفعيل Firebase، يتم رفع نسخ مشفرة
-                    من المعاملات والملخصات للسحابة لمتابعة مبيعات المحل من هاتفك في أي وقت ومن أي مكان.
-                  </p>
-                </div>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.enableCloudSync}
-                  onChange={(e) => setFormData({ ...formData, enableCloudSync: e.target.checked })}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-              </label>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Firebase API Key</label>
-                <input
-                  type="text"
-                  value={formData.firebaseConfig?.apiKey || ''}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      firebaseConfig: { ...formData.firebaseConfig, apiKey: e.target.value },
-                    })
-                  }
-                  placeholder="AIzaSy..."
-                  className="w-full rounded-xl border border-slate-300 p-2.5 text-xs font-mono focus:border-blue-600 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Project ID</label>
-                <input
-                  type="text"
-                  value={formData.firebaseConfig?.projectId || ''}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      firebaseConfig: { ...formData.firebaseConfig, projectId: e.target.value },
-                    })
-                  }
-                  placeholder="my-mobile-store-pos"
-                  className="w-full rounded-xl border border-slate-300 p-2.5 text-xs font-mono focus:border-blue-600 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Auth Domain</label>
-                <input
-                  type="text"
-                  value={formData.firebaseConfig?.authDomain || ''}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      firebaseConfig: { ...formData.firebaseConfig, authDomain: e.target.value },
-                    })
-                  }
-                  placeholder="my-mobile-store-pos.firebaseapp.com"
-                  className="w-full rounded-xl border border-slate-300 p-2.5 text-xs font-mono focus:border-blue-600 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Storage Bucket</label>
-                <input
-                  type="text"
-                  value={formData.firebaseConfig?.storageBucket || ''}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      firebaseConfig: { ...formData.firebaseConfig, storageBucket: e.target.value },
-                    })
-                  }
-                  placeholder="my-mobile-store-pos.appspot.com"
-                  className="w-full rounded-xl border border-slate-300 p-2.5 text-xs font-mono focus:border-blue-600 focus:outline-none"
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-center justify-between border-t pt-4 gap-4">
-              <div className="text-xs text-slate-500">
-                {formData.lastSyncTime
-                  ? `آخر مزامنة ناجحة: ${new Date(formData.lastSyncTime).toLocaleString('ar-EG')}`
-                  : 'لم تتم المزامنة بعد.'}
-              </div>
-
-              <button
-                type="button"
-                onClick={handleSyncNow}
-                disabled={syncLoading}
-                className="flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 text-sm font-bold shadow transition cursor-pointer disabled:opacity-50"
-              >
-                <RefreshCw className={`h-4 w-4 ${syncLoading ? 'animate-spin' : ''}`} />
-                <span>{syncLoading ? 'جاري المزامنة...' : 'مزامنة البيانات الآن للسحابة'}</span>
-              </button>
-            </div>
-
-            {syncMessage && (
-              <div className="text-xs p-3 rounded-xl bg-slate-100 border text-slate-700 font-semibold">
-                {syncMessage}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* TAB 4: BACKUP & RESTORE */}
+        {/* TAB 3: BACKUP & RESTORE */}
         {activeTab === 'backup' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -618,14 +500,14 @@ export const SettingsView: React.FC = () => {
                   <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-600 text-white mb-4">
                     <ShieldAlert className="h-6 w-6" />
                   </div>
-                  <h4 className="font-bold text-base text-slate-800 mb-1">استعادة نسخة احتياطية سابقة (Restore)</h4>
-                  <p className="text-xs text-slate-600 leading-relaxed mb-4">
-                    يمكنك استعادة بيانات المحل بالكامل من ملف Backup تم تصديره مسبقاً في حال تغيير الجهاز أو تثبيت نسخة جديدة للنظام.
+                  <h4 className="font-bold text-base text-slate-800 mb-1">استعادة نسخة احتياطية (Restore)</h4>
+                  <p className="text-xs text-slate-500 leading-relaxed mb-4">
+                    حدد ملف النسخة الاحتياطية (JSON) لاسترجاع كافة المعاملات والبيانات المسجلة مسبقاً.
                   </p>
                 </div>
-                <label className="flex items-center justify-center gap-2 w-full rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm py-3 shadow transition cursor-pointer text-center">
-                  <Upload className="h-4 w-4" />
-                  <span>اختيار ملف النسخة الاحتياطية واستعادتها</span>
+                <label className="flex items-center justify-center gap-2 w-full rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm py-3 shadow transition cursor-pointer">
+                  <RotateCcw className="h-4 w-4" />
+                  <span>تحديد ملف النسخة للاستعادة</span>
                   <input type="file" accept=".json" onChange={handleImportBackup} className="hidden" />
                 </label>
               </div>

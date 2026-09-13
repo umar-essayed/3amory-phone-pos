@@ -21,12 +21,14 @@ import {
 } from 'lucide-react';
 import { db } from '../db';
 import { triggerPrint } from '../services/printer';
+import { useModal } from '../context/ModalContext';
 import type { InvoiceItem, SaleInvoice, StoreSettings, Phone, Accessory } from '../types';
 
 export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> = ({
   activeShiftId,
   cashierName,
 }) => {
+  const { showAlert, showToast } = useModal();
   const phones = useLiveQuery(() => db.phones.where('status').equals('available').toArray()) || [];
   const accessories = useLiveQuery(() => db.accessories.toArray()) || [];
   const settings = useLiveQuery(() => db.settings.get(1));
@@ -81,7 +83,7 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
     // Phones can only be added once because each has unique IMEI
     const alreadyInCart = cartItems.find((item) => item.itemId === phone.id);
     if (alreadyInCart) {
-      alert('هذا الهاتف مضاف بالفعل في سلة المبيعات!');
+      showAlert('هذا الهاتف مضاف بالفعل في سلة المبيعات الحالية!', 'تنبيه', 'warning');
       return;
     }
 
@@ -148,10 +150,9 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
   const totalCost = cartItems.reduce((acc, i) => acc + i.costPrice * i.quantity, 0);
   const totalProfit = Math.max(0, grandTotal - totalCost);
 
-  // Complete Sale
   const handleCompleteSale = async () => {
     if (cartItems.length === 0) {
-      alert('السلة فارغة! يرجى إضافة أصناف للبيع.');
+      showAlert('سلة المبيعات فارغة! يرجى إضافة هواتف أو إكسسوارات للبيع.', 'تنبيه', 'warning');
       return;
     }
 
@@ -238,6 +239,7 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
     }
 
     // Reset
+    showToast('تم إتمام عملية البيع وتأكيد الفاتورة بنجاح!');
     setCartItems([]);
     setCustomerName('');
     setCustomerPhone('');

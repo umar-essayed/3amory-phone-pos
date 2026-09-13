@@ -52,8 +52,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     {
       id: 'wallets',
       label: 'فودافون كاش وإنستاباي',
-      badge: '⚡ سريع',
-      badgeColor: 'bg-red-500 text-white',
       icon: Zap,
       color: 'text-red-500',
     },

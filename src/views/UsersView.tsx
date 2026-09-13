@@ -19,6 +19,7 @@ import {
   BadgeCheck,
 } from 'lucide-react';
 import { db } from '../db';
+import { useModal } from '../context/ModalContext';
 import type { User } from '../types';
 
 type UserRole = 'owner' | 'manager' | 'cashier' | 'technician';
@@ -46,6 +47,7 @@ const EMPTY_FORM = {
 };
 
 export const UsersView: React.FC = () => {
+  const { showAlert, showToast } = useModal();
   const users = useLiveQuery(() => db.users.toArray()) || [];
   const settings = useLiveQuery(() => db.settings.get(1));
 
@@ -61,20 +63,20 @@ export const UsersView: React.FC = () => {
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.username || !form.pin || !form.displayName) {
-      alert('يرجى ملء جميع الحقول!');
+      showAlert('يرجى ملء جميع الحقول المطلوبة.', 'بيانات ناقصة', 'warning');
       return;
     }
     if (form.pin.length < 4) {
-      alert('يجب أن يتكون الـPIN من 4 أرقام على الأقل!');
+      showAlert('يجب أن يتكون رمز الـ PIN من 4 أرقام على الأقل.', 'PIN قصير', 'warning');
       return;
     }
     if (form.pin !== form.confirmPin) {
-      alert('كلمة المرور غير متطابقة!');
+      showAlert('رمز الـ PIN غير متطابق مع التأكيد!', 'عدم تطابق', 'error');
       return;
     }
     const existing = await db.users.where('username').equals(form.username).first();
     if (existing) {
-      alert('اسم المستخدم موجود مسبقاً!');
+      showAlert('اسم المستخدم هذا مسجل مسبقاً!', 'اسم مستخدم مكرر', 'error');
       return;
     }
 
@@ -114,10 +116,11 @@ export const UsersView: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     if (users.length <= 1) {
-      alert('لا يمكن حذف المستخدم الأخير في النظام!');
+      showAlert('لا يمكن حذف المستخدم الأخير المتبقي في النظام!', 'تنبيه أمني', 'warning');
       return;
     }
     await db.users.delete(id);
+    showToast('تم حذف المستخدم بنجاح');
     setConfirmDeleteId(null);
   };
 

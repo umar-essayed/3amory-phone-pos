@@ -5,73 +5,71 @@ import {
   Cloud,
   CloudOff,
   Settings,
-  ChevronDown,
   RefreshCw,
+  Lock,
+  LogOut,
+  UserCheck,
 } from 'lucide-react';
 import { db } from '../db';
 import { syncDataToFirebase } from '../services/firebase';
+import { useModal } from '../context/ModalContext';
 
 interface HeaderProps {
   currentRole: string;
   setCurrentRole: (role: string) => void;
   activeTab: string;
   setActiveTab: (tab: string) => void;
+  onLockScreen?: () => void;
 }
-
-const ROLE_LABELS: Record<string, string> = {
-  owner: 'مالك',
-  manager: 'مدير',
-  cashier: 'كاشير',
-  technician: 'تقني',
-};
 
 export const Header: React.FC<HeaderProps> = ({
   currentRole,
-  setCurrentRole,
   activeTab,
   setActiveTab,
+  onLockScreen,
 }) => {
   const settings = useLiveQuery(() => db.settings.get(1));
   const openShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
-  const users = useLiveQuery(() => db.users.where('isActive').equals(1).toArray()) || [];
   const [syncing, setSyncing] = React.useState(false);
+  const { showAlert, showToast } = useModal();
 
   const handleCloudSync = async () => {
     setSyncing(true);
     const res = await syncDataToFirebase();
     setSyncing(false);
-    alert(res.message);
+    if (res.success) {
+      showToast(res.message, 'success');
+    } else {
+      await showAlert(res.message, 'تنبيه المزامنة', 'error');
+    }
   };
 
   const drawerBalance = openShift?.closingCashSystem || 0;
   const cur = settings?.currency || 'ج.م';
+  const logoSrc = settings?.logoUrl || '/logo-removebg-preview.png';
 
   return (
     <header className="sticky top-0 z-40 bg-white border-b border-slate-200 px-4 sm:px-6 py-2.5 shadow-xs no-print">
       <div className="flex items-center justify-between gap-4">
         {/* Logo & Store Name */}
         <div className="flex items-center gap-3 cursor-pointer shrink-0" onClick={() => setActiveTab('pos')}>
-          {settings?.logoUrl ? (
+          <div className="h-11 w-11 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center justify-center p-1 overflow-hidden">
             <img
-              src={settings.logoUrl}
-              alt={settings.storeName}
-              className="h-10 w-10 object-contain rounded-xl border border-slate-200 shadow-xs bg-white"
+              src={logoSrc}
+              alt="Logo"
+              className="max-h-full max-w-full object-contain"
               onError={(e) => {
-                (e.target as HTMLElement).style.display = 'none';
+                (e.target as HTMLImageElement).src = '/logo-removebg-preview.png';
               }}
             />
-          ) : (
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white flex items-center justify-center">
-              <Store className="h-5 w-5" />
-            </div>
-          )}
+          </div>
 
           <div>
             <h1 className="font-display text-base font-black text-slate-900 leading-tight">
               {settings?.storeName || 'محل الهواتف الذكية'}
             </h1>
             <p className="text-[10px] text-slate-400 font-semibold hidden sm:block">
-              {settings?.phone1 ? settings.phone1 : 'Mobile POS Pro'}
+              {settings?.phone1 ? `خدمة العملاء: ${settings.phone1}` : 'Mobile POS Pro'}
             </p>
           </div>
         </div>
@@ -110,27 +108,21 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
-        {/* Right: Actions */}
+        {/* Right: Actions & User Lock Button */}
         <div className="flex items-center gap-2">
           {/* Firebase Sync Button */}
           <button
             onClick={handleCloudSync}
             disabled={syncing}
-            title="مزامنة مع Firebase"
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition border cursor-pointer ${
-              settings?.enableCloudSync
-                ? 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'
-                : 'bg-slate-100 border-slate-200 text-slate-400 hover:bg-slate-200'
-            }`}
+            title="مزامنة مع السحابة"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 cursor-pointer"
           >
             {syncing ? (
               <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-            ) : settings?.enableCloudSync ? (
-              <Cloud className="h-3.5 w-3.5" />
             ) : (
-              <CloudOff className="h-3.5 w-3.5" />
+              <Cloud className="h-3.5 w-3.5" />
             )}
-            <span className="hidden sm:inline">{syncing ? '...' : settings?.enableCloudSync ? 'سحابة' : 'أوفلاين'}</span>
+            <span className="hidden sm:inline">{syncing ? '...' : 'مزامنة سحابية'}</span>
           </button>
 
           {/* Settings Quick Access */}
@@ -146,27 +138,20 @@ export const Header: React.FC<HeaderProps> = ({
             <Settings className="h-4 w-4" />
           </button>
 
-          {/* Cashier Selector — live from DB users */}
-          <div className="flex items-center gap-1.5 bg-slate-100 rounded-xl px-3 py-1.5 border border-slate-200">
-            <div className="h-6 w-6 rounded-lg bg-blue-600 text-white flex items-center justify-center text-[10px] font-black shrink-0">
+          {/* Current Active User & Lock/Switch Screen */}
+          <button
+            onClick={onLockScreen}
+            title="قفل الشاشة / تبديل المستخدم بالـ PIN"
+            className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 active:scale-95 transition rounded-xl px-3 py-1.5 border border-slate-200 cursor-pointer group"
+          >
+            <div className="h-6 w-6 rounded-lg bg-blue-600 text-white flex items-center justify-center text-[10px] font-black shrink-0 shadow-xs">
               {currentRole.charAt(0)}
             </div>
-            <select
-              value={currentRole}
-              onChange={(e) => setCurrentRole(e.target.value)}
-              className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer max-w-[100px] truncate"
-            >
-              {/* Static roles */}
-              <option value="المدير العام (المالك)">مالك</option>
-              {/* Dynamic users from DB */}
-              {users.map((u) => (
-                <option key={u.id} value={u.displayName || u.username}>
-                  {u.displayName || u.username} ({ROLE_LABELS[u.role] || u.role})
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="h-3 w-3 text-slate-400 shrink-0" />
-          </div>
+            <span className="text-xs font-bold text-slate-800 max-w-[120px] truncate">
+              {currentRole}
+            </span>
+            <Lock className="h-3.5 w-3.5 text-slate-400 group-hover:text-blue-600 transition shrink-0" />
+          </button>
         </div>
       </div>
     </header>

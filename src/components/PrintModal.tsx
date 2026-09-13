@@ -69,11 +69,11 @@ export const PrintModal: React.FC = () => {
               {settings.logoUrl && (
                 <div className="flex justify-center mb-2">
                   <img
-                    src={settings.logoUrl}
+                    src={settings.logoUrl || '/logo-removebg-preview.png'}
                     alt={settings.storeName}
-                    className="h-16 w-16 object-contain rounded-full border border-slate-200"
+                    className="h-16 w-auto max-w-[140px] object-contain"
                     onError={(e) => {
-                      (e.target as HTMLElement).style.display = 'none';
+                      (e.target as HTMLImageElement).src = '/logo-removebg-preview.png';
                     }}
                   />
                 </div>

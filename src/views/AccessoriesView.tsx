@@ -17,6 +17,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { db } from '../db';
+import { useModal } from '../context/ModalContext';
 import type { Accessory } from '../types';
 
 const CATEGORIES = ['جرابات', 'سكرينات', 'شواحن', 'كابلات', 'سماعات', 'ساعات ذكية', 'باور بنك', 'قطع غيار', 'إكسسوارات', 'أخرى'];
@@ -34,6 +35,7 @@ const EMPTY_FORM = {
 };
 
 export const AccessoriesView: React.FC = () => {
+  const { showAlert, showConfirm, showToast } = useModal();
   const accessories = useLiveQuery(() => db.accessories.orderBy('createdAt').reverse().toArray()) || [];
   const settings = useLiveQuery(() => db.settings.get(1));
 
@@ -56,7 +58,7 @@ export const AccessoriesView: React.FC = () => {
   const handleAddAccessory = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name || !form.sellPriceRetail || !form.stockQuantity) {
-      alert('يرجى ملء الحقول الأساسية: الاسم، سعر القطاعي، والكمية.');
+      showAlert('يرجى ملء الحقول الأساسية: الاسم، سعر القطاعي، والكمية بالمخزن.', 'بيانات ناقصة', 'warning');
       return;
     }
 
@@ -64,7 +66,7 @@ export const AccessoriesView: React.FC = () => {
 
     const existing = await db.accessories.where('barcode').equals(finalBarcode).first();
     if (existing) {
-      alert('تنبيه: هذا الباركود مسجل مسبقاً لصنف آخر!');
+      showAlert('تنبيه: هذا الباركود مسجل مسبقاً لصنف آخر في المخزن!', 'باركود مكرر', 'error');
       return;
     }
 
@@ -467,8 +469,14 @@ export const AccessoriesView: React.FC = () => {
                           <button
                             type="button"
                             onClick={async () => {
-                              if (confirm(`حذف الصنف (${acc.name})؟`)) {
+                              const confirmed = await showConfirm(
+                                `هل أنت متأكد من حذف الصنف (${acc.name})؟`,
+                                'تأكيد حذف صنف',
+                                { confirmText: 'حذف الصنف', cancelText: 'إلغاء', danger: true }
+                              );
+                              if (confirmed) {
                                 await db.accessories.delete(acc.id);
+                                showToast(`تم حذف الصنف ${acc.name}`);
                               }
                             }}
                             title="حذف"

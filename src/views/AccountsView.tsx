@@ -17,9 +17,11 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { db } from '../db';
+import { useModal } from '../context/ModalContext';
 import type { Customer, Supplier } from '../types';
 
 export const AccountsView: React.FC = () => {
+  const { showAlert, showConfirm, showToast } = useModal();
   const customers = useLiveQuery(() => db.customers.toArray()) || [];
   const suppliers = useLiveQuery(() => db.suppliers.toArray()) || [];
   const settings = useLiveQuery(() => db.settings.get(1));
@@ -57,7 +59,7 @@ export const AccountsView: React.FC = () => {
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !phone) {
-      alert('الاسم والهاتف مطلوبان!');
+      showAlert('الاسم ورقم الهاتف حقول مطلوبة.', 'بيانات ناقصة', 'warning');
       return;
     }
 
@@ -358,8 +360,15 @@ export const AccountsView: React.FC = () => {
                     </button>
                     <button
                       onClick={async () => {
-                        if (confirm(`حذف العميل "${customer.name}"؟`))
+                        const confirmed = await showConfirm(
+                          `هل أنت متأكد من حذف حساب العميل "${customer.name}"؟`,
+                          'تأكيد حذف عميل',
+                          { confirmText: 'حذف العميل', cancelText: 'إلغاء', danger: true }
+                        );
+                        if (confirmed) {
                           await db.customers.delete(customer.id);
+                          showToast(`تم حذف العميل ${customer.name}`);
+                        }
                       }}
                       className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-red-50 text-red-600 text-[11px] font-bold hover:bg-red-100 transition cursor-pointer"
                     >
@@ -438,8 +447,15 @@ export const AccountsView: React.FC = () => {
                     </button>
                     <button
                       onClick={async () => {
-                        if (confirm(`حذف المورد "${supplier.name}"؟`))
+                        const confirmed = await showConfirm(
+                          `هل أنت متأكد من حذف حساب المورد "${supplier.name}"؟`,
+                          'تأكيد حذف مورد',
+                          { confirmText: 'حذف المورد', cancelText: 'إلغاء', danger: true }
+                        );
+                        if (confirmed) {
                           await db.suppliers.delete(supplier.id);
+                          showToast(`تم حذف المورد ${supplier.name}`);
+                        }
                       }}
                       className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-red-50 text-red-600 text-[11px] font-bold hover:bg-red-100 transition cursor-pointer"
                     >

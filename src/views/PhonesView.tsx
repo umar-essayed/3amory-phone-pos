@@ -19,9 +19,11 @@ import {
 } from 'lucide-react';
 import { db } from '../db';
 import { triggerPrint } from '../services/printer';
+import { useModal } from '../context/ModalContext';
 import type { Phone, StoreSettings } from '../types';
 
 export const PhonesView: React.FC = () => {
+  const { showAlert, showConfirm, showToast } = useModal();
   const phones = useLiveQuery(() => db.phones.orderBy('createdAt').reverse().toArray()) || [];
   const settings = useLiveQuery(() => db.settings.get(1));
 
@@ -61,14 +63,14 @@ export const PhonesView: React.FC = () => {
     e.preventDefault();
 
     if (!phoneName || !imei1 || !sellPrice) {
-      alert('يرجى كتابة اسم الجهاز ورقم IMEI وسعر البيع على الأقل.');
+      showAlert('يرجى كتابة اسم الجهاز ورقم الـ IMEI وسعر البيع على الأقل.', 'بيانات ناقصة', 'warning');
       return;
     }
 
     // IMEI duplicate check
     const existing = await db.phones.where('imei1').equals(imei1.trim()).first();
     if (existing) {
-      alert(`تنبيه أمني: رقم الـ IMEI (${imei1}) مسجل مسبقاً في النظام باسم: ${existing.name}!`);
+      showAlert(`تنبيه أمني: رقم الـ IMEI (${imei1}) مسجل مسبقاً في النظام باسم: ${existing.name}!`, 'IMEI مكرر', 'error');
       return;
     }
 
@@ -104,10 +106,16 @@ export const PhonesView: React.FC = () => {
     };
 
     await db.phones.add(newPhone);
+    showToast('تمت إضافة الهاتف بنجاح إلى مخزن الأجهزة');
 
     // If used phone, offer immediate legal contract printing
     if (condition === 'used' && sellerName && settings) {
-      if (confirm('تمت إضافة الهاتف المستعمل بنجاح! هل تريد طباعة عقد وإقرار التنازل القانوني الآن؟')) {
+      const wantPrint = await showConfirm(
+        'تم تسجيل بيانات الهاتف المستعمل بنجاح!\nهل ترغب في طباعة عقد التنازل والإقرار القانوني المعتمد الآن؟',
+        'طباعة عقد الشراء والتنازل',
+        { confirmText: 'طباعة العقد الآن', cancelText: 'لاحقاً' }
+      );
+      if (wantPrint) {
         triggerPrint({
           type: 'used_phone_contract',
           phone: newPhone,
@@ -365,8 +373,14 @@ export const PhonesView: React.FC = () => {
                   <button
                     type="button"
                     onClick={async () => {
-                      if (confirm(`هل أنت متأكد من حذف الجهاز (${p.name})؟`)) {
+                      const confirmed = await showConfirm(
+                        `هل أنت متأكد من حذف الجهاز (${p.name}) من المخزن نهائياً؟`,
+                        'تأكيد حذف هاتف',
+                        { confirmText: 'حذف الهاتف', cancelText: 'إلغاء', danger: true }
+                      );
+                      if (confirmed) {
                         await db.phones.delete(p.id);
+                        showToast(`تم حذف ${p.name}`);
                       }
                     }}
                     className="p-2 rounded-xl bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600 transition cursor-pointer"

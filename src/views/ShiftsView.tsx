@@ -16,12 +16,14 @@ import {
 } from 'lucide-react';
 import { db } from '../db';
 import { triggerPrint } from '../services/printer';
+import { useModal } from '../context/ModalContext';
 import type { Shift, Expense, StoreSettings } from '../types';
 
 export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }> = ({
   activeShiftId,
   cashierName,
 }) => {
+  const { showAlert, showPrompt, showToast } = useModal();
   const activeShift = useLiveQuery(() => db.shifts.get(activeShiftId));
   const shiftsHistory =
     useLiveQuery(() => db.shifts.orderBy('startTime').reverse().limit(30).toArray()) || [];
@@ -45,7 +47,7 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
     e.preventDefault();
     const amountNum = parseFloat(expenseAmount);
     if (!expenseTitle || !amountNum || amountNum <= 0) {
-      alert('يرجى كتابة بيان المصروف والمبلغ بشكل صحيح.');
+      showAlert('يرجى كتابة بيان المصروف والمبلغ بشكل صحيح.', 'بيانات ناقصة', 'warning');
       return;
     }
 
@@ -106,12 +108,17 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
     }
 
     setShowCloseModal(false);
-    alert('تم إغلاق الوردية بنجاح!');
+    showToast('تم تقفيل الوردية وجرد الدرج بنجاح!');
   };
 
   // Start New Shift
   const handleStartNewShift = async () => {
-    const openingCash = prompt('أدخل رصيد الكاش الافتتاحي في الدرج للوردية الجديدة (ج.م):', '0');
+    const openingCash = await showPrompt(
+      'أدخل رصيد الكاش الافتتاحي في الدرج لبدء الوردية الجديدة (ج.م):',
+      '0',
+      'بدء وردية جديدة',
+      '0'
+    );
     if (openingCash === null) return;
 
     const numOpening = parseFloat(openingCash) || 0;

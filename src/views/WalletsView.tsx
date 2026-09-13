@@ -22,12 +22,14 @@ import {
 } from 'lucide-react';
 import { db } from '../db';
 import { triggerPrint } from '../services/printer';
+import { useModal } from '../context/ModalContext';
 import type { StoreWallet, WalletTransaction, StoreSettings } from '../types';
 
 export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string }> = ({
   activeShiftId,
   cashierName,
 }) => {
+  const { showAlert, showConfirm, showToast } = useModal();
   const wallets = useLiveQuery(() => db.wallets.filter((w) => w.isActive).toArray()) || [];
   const transactions =
     useLiveQuery(() =>
@@ -97,13 +99,13 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
     const numCommission = parseFloat(commission) || 0;
 
     if (!numAmount || numAmount <= 0) {
-      alert('يرجى كتابة مبلغ صحيح للعملية.');
+      showAlert('يرجى كتابة مبلغ صحيح أكبر من الصفر.', 'مبلغ غير صحيح', 'warning');
       return;
     }
 
     const currentWallet = wallets.find((w) => w.id === selectedWalletId);
     if (!currentWallet) {
-      alert('يرجى تحديد المحفظة.');
+      showAlert('يرجى اختيار المحفظة لتنفيذ العملية.', 'تحديد محفظة', 'warning');
       return;
     }
 
@@ -112,11 +114,12 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
       (txType === 'cash_out_to_customer' || txType === 'instapay_transfer' || txType === 'internal_transfer') &&
       currentWallet.balance < numAmount
     ) {
-      if (
-        !confirm(
-          `تنبيه: رصيد المحفظة الحالي (${currentWallet.balance.toLocaleString()} ج) أقل من المبلغ المطلوب تحويله (${numAmount.toLocaleString()} ج). هل تريد المتابعة على أية حال؟`
-        )
-      ) {
+      const proceed = await showConfirm(
+        `تنبيه: رصيد المحفظة الحالي (${currentWallet.balance.toLocaleString()} ج) أقل من المبلغ المطلوب تحويله (${numAmount.toLocaleString()} ج).\nهل ترغب في المتابعة على أية حال؟`,
+        'رصيد المحفظة غير كافٍ',
+        { confirmText: 'متابعة التحويل', cancelText: 'إلغاء العملية', danger: true }
+      );
+      if (!proceed) {
         return;
       }
     }
@@ -208,7 +211,7 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
   const handleCreateWallet = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newWalletName || !newWalletAccount) {
-      alert('يرجى ملء جميع الحقول.');
+      showAlert('يرجى كتابة اسم المحفظة ورقم الحساب/الهاتف.', 'بيانات ناقصة', 'warning');
       return;
     }
 
@@ -346,8 +349,14 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
                     type="button"
                     onClick={async (e) => {
                       e.stopPropagation();
-                      if (confirm(`تعطيل المحفظة "${w.name}"؟`)) {
+                      const confirmed = await showConfirm(
+                        `هل أنت متأكد من تعطيل/حذف المحفظة "${w.name}"؟`,
+                        'تعطيل المحفظة',
+                        { confirmText: 'نعم، تعطيل', cancelText: 'إلغاء', danger: true }
+                      );
+                      if (confirmed) {
                         await db.wallets.update(w.id, { isActive: false });
+                        showToast(`تم تعطيل محفظة ${w.name}`);
                       }
                     }}
                     className="p-1 rounded-lg bg-red-100 text-red-500 hover:bg-red-200 cursor-pointer"
