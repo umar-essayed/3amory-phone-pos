@@ -67,18 +67,27 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
     }
   }, [wallets, selectedWalletId]);
 
-  // Fast Egyptian Market standard commission calculation
+  // Calculate Commission based on store settings (Rate per 1,000 + Minimum fee)
   const calculateDefaultCommission = (val: number, type: string) => {
     if (!val || val <= 0 || type === 'internal_transfer') return 0;
-    if (val <= 100) return 3;
-    if (val <= 200) return 5;
-    if (val <= 500) return 7;
-    if (val <= 1000) return 10;
-    if (val <= 2000) return 15;
-    if (val <= 3000) return 20;
-    if (val <= 4000) return 25;
-    if (val <= 5000) return 30;
-    return Math.ceil(val * 0.007);
+
+    const rules = settings?.commissionRules;
+    let feePerThousand = 10;
+    let minFee = 5;
+
+    if (type === 'cash_out_to_customer') {
+      feePerThousand = rules?.transferFeePerThousand ?? 10;
+      minFee = rules?.minTransferFee ?? 5;
+    } else if (type === 'cash_in_from_customer') {
+      feePerThousand = rules?.withdrawFeePerThousand ?? 10;
+      minFee = rules?.minWithdrawFee ?? 5;
+    } else if (type === 'instapay_transfer') {
+      feePerThousand = rules?.instapayFeePerThousand ?? 5;
+      minFee = rules?.minInstapayFee ?? 5;
+    }
+
+    const calculated = Math.ceil((val / 1000) * feePerThousand);
+    return Math.max(minFee, calculated);
   };
 
   const handleAmountChange = (valStr: string) => {

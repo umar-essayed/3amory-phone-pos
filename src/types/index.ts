@@ -30,6 +30,14 @@ export interface StoreSettings {
   };
   enableCloudSync: boolean;
   lastSyncTime: string | null;
+  commissionRules?: {
+    transferFeePerThousand: number; // عمولة تحويل كاش لكل 1000 جنيه
+    minTransferFee: number;         // الحد الأدنى لعمولة التحويل
+    withdrawFeePerThousand: number; // عمولة سحب كاش لكل 1000 جنيه
+    minWithdrawFee: number;         // الحد الأدنى لعمولة السحب
+    instapayFeePerThousand: number; // عمولة إنستاباي لكل 1000 جنيه
+    minInstapayFee: number;         // الحد الأدنى لعمولة إنستاباي
+  };
 }
 
 export interface User {

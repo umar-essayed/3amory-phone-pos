@@ -12,6 +12,8 @@ import {
   ShieldAlert,
   RotateCcw,
   Cloud,
+  Percent,
+  Zap,
 } from 'lucide-react';
 import { db } from '../db';
 import { triggerPrint, kickCashDrawer } from '../services/printer';
@@ -24,7 +26,7 @@ export const SettingsView: React.FC = () => {
 
   const [formData, setFormData] = useState<StoreSettings | null>(null);
   const [savedSuccess, setSavedSuccess] = useState(false);
-  const [activeTab, setActiveTab] = useState<'store' | 'receipt' | 'backup'>('store');
+  const [activeTab, setActiveTab] = useState<'store' | 'receipt' | 'commissions' | 'backup'>('store');
 
   useEffect(() => {
     if (currentSettings) {
@@ -221,6 +223,17 @@ export const SettingsView: React.FC = () => {
         >
           <Printer className="h-4 w-4" />
           <span>إعدادات الفواتير والطباعة</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('commissions')}
+          className={`flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-bold transition whitespace-nowrap cursor-pointer ${
+            activeTab === 'commissions'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Percent className="h-4 w-4" />
+          <span>عمولات الكاش والتحويلات</span>
         </button>
         <button
           onClick={() => setActiveTab('backup')}
@@ -536,7 +549,222 @@ export const SettingsView: React.FC = () => {
           </form>
         )}
 
-        {/* TAB 3: BACKUP & RESTORE */}
+        {/* TAB 3: COMMISSIONS & FEES CONFIGURATION */}
+        {activeTab === 'commissions' && (
+          <form onSubmit={handleSave} className="space-y-6">
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 p-5 rounded-2xl">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="h-10 w-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-sm">
+                  <Percent className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-display font-bold text-slate-900 text-base">
+                    قواعد احتساب عمولات الكاش والتحويلات الذكية
+                  </h3>
+                  <p className="text-xs text-slate-600">
+                    حدد عمولة المحل لكل 1000 جنيه والحد الأدنى لأي عملية، وسيقوم النظام باحتساب العمولة تلقائياً عند كتابة المبلغ.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* 1. Cash Out (المحل يحول للعميل) */}
+              <div className="rounded-2xl border-2 border-red-200 bg-red-50/30 p-5 space-y-4">
+                <div className="flex items-center gap-2 text-red-700 font-display font-black text-sm border-b border-red-200 pb-2">
+                  <Zap className="h-4 w-4" />
+                  <span>تحويل كاش للعميل (المحل يحول)</span>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    العمولة لكل 1000 جنيه (ج.م):
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={formData.commissionRules?.transferFeePerThousand ?? 10}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        commissionRules: {
+                          ...(formData.commissionRules || {
+                            transferFeePerThousand: 10,
+                            minTransferFee: 5,
+                            withdrawFeePerThousand: 10,
+                            minWithdrawFee: 5,
+                            instapayFeePerThousand: 5,
+                            minInstapayFee: 5,
+                          }),
+                          transferFeePerThousand: parseFloat(e.target.value) || 0,
+                        },
+                      })
+                    }
+                    className="w-full bg-white rounded-xl border border-red-300 p-2.5 text-sm font-mono font-bold text-slate-900 focus:outline-none focus:border-red-500"
+                  />
+                  <span className="text-[11px] text-slate-500 mt-1 block">مثلاً: 10 ج على كل 1000 ج</span>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    الحد الأدنى للعمولة (أقل مبلغ ربح):
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={formData.commissionRules?.minTransferFee ?? 5}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        commissionRules: {
+                          ...(formData.commissionRules || {
+                            transferFeePerThousand: 10,
+                            minTransferFee: 5,
+                            withdrawFeePerThousand: 10,
+                            minWithdrawFee: 5,
+                            instapayFeePerThousand: 5,
+                            minInstapayFee: 5,
+                          }),
+                          minTransferFee: parseFloat(e.target.value) || 0,
+                        },
+                      })
+                    }
+                    className="w-full bg-white rounded-xl border border-red-300 p-2.5 text-sm font-mono font-bold text-slate-900 focus:outline-none focus:border-red-500"
+                  />
+                  <span className="text-[11px] text-slate-500 mt-1 block">أقل عمولة للعمليات الصغيرة (مثلاً 5 ج)</span>
+                </div>
+              </div>
+
+              {/* 2. Cash In (العميل يحول للمحل ونعطيه كاش) */}
+              <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50/30 p-5 space-y-4">
+                <div className="flex items-center gap-2 text-emerald-700 font-display font-black text-sm border-b border-emerald-200 pb-2">
+                  <Zap className="h-4 w-4" />
+                  <span>سحب كاش من العميل (العميل يحول)</span>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    العمولة لكل 1000 جنيه (ج.م):
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={formData.commissionRules?.withdrawFeePerThousand ?? 10}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        commissionRules: {
+                          ...(formData.commissionRules || {
+                            transferFeePerThousand: 10,
+                            minTransferFee: 5,
+                            withdrawFeePerThousand: 10,
+                            minWithdrawFee: 5,
+                            instapayFeePerThousand: 5,
+                            minInstapayFee: 5,
+                          }),
+                          withdrawFeePerThousand: parseFloat(e.target.value) || 0,
+                        },
+                      })
+                    }
+                    className="w-full bg-white rounded-xl border border-emerald-300 p-2.5 text-sm font-mono font-bold text-slate-900 focus:outline-none focus:border-emerald-500"
+                  />
+                  <span className="text-[11px] text-slate-500 mt-1 block">مثلاً: 10 ج على كل 1000 ج</span>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    الحد الأدنى للعمولة (أقل مبلغ ربح):
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={formData.commissionRules?.minWithdrawFee ?? 5}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        commissionRules: {
+                          ...(formData.commissionRules || {
+                            transferFeePerThousand: 10,
+                            minTransferFee: 5,
+                            withdrawFeePerThousand: 10,
+                            minWithdrawFee: 5,
+                            instapayFeePerThousand: 5,
+                            minInstapayFee: 5,
+                          }),
+                          minWithdrawFee: parseFloat(e.target.value) || 0,
+                        },
+                      })
+                    }
+                    className="w-full bg-white rounded-xl border border-emerald-300 p-2.5 text-sm font-mono font-bold text-slate-900 focus:outline-none focus:border-emerald-500"
+                  />
+                  <span className="text-[11px] text-slate-500 mt-1 block">أقل عمولة للعمليات الصغيرة (مثلاً 5 ج)</span>
+                </div>
+              </div>
+
+              {/* 3. InstaPay */}
+              <div className="rounded-2xl border-2 border-purple-200 bg-purple-50/30 p-5 space-y-4">
+                <div className="flex items-center gap-2 text-purple-700 font-display font-black text-sm border-b border-purple-200 pb-2">
+                  <Zap className="h-4 w-4" />
+                  <span>تحويلات إنستاباي (InstaPay)</span>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    العمولة لكل 1000 جنيه (ج.م):
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={formData.commissionRules?.instapayFeePerThousand ?? 5}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        commissionRules: {
+                          ...(formData.commissionRules || {
+                            transferFeePerThousand: 10,
+                            minTransferFee: 5,
+                            withdrawFeePerThousand: 10,
+                            minWithdrawFee: 5,
+                            instapayFeePerThousand: 5,
+                            minInstapayFee: 5,
+                          }),
+                          instapayFeePerThousand: parseFloat(e.target.value) || 0,
+                        },
+                      })
+                    }
+                    className="w-full bg-white rounded-xl border border-purple-300 p-2.5 text-sm font-mono font-bold text-slate-900 focus:outline-none focus:border-purple-500"
+                  />
+                  <span className="text-[11px] text-slate-500 mt-1 block">مثلاً: 5 ج على كل 1000 ج</span>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    الحد الأدنى للعمولة (أقل مبلغ ربح):
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={formData.commissionRules?.minInstapayFee ?? 5}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        commissionRules: {
+                          ...(formData.commissionRules || {
+                            transferFeePerThousand: 10,
+                            minTransferFee: 5,
+                            withdrawFeePerThousand: 10,
+                            minWithdrawFee: 5,
+                            instapayFeePerThousand: 5,
+                            minInstapayFee: 5,
+                          }),
+                          minInstapayFee: parseFloat(e.target.value) || 0,
+                        },
+                      })
+                    }
+                    className="w-full bg-white rounded-xl border border-purple-300 p-2.5 text-sm font-mono font-bold text-slate-900 focus:outline-none focus:border-purple-500"
+                  />
+                  <span className="text-[11px] text-slate-500 mt-1 block">أقل عمولة للعمليات الصغيرة (مثلاً 5 ج)</span>
+                </div>
+              </div>
+            </div>
+          </form>
+        )}
+
+        {/* TAB 4: BACKUP & RESTORE */}
         {activeTab === 'backup' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

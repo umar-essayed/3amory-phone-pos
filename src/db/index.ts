@@ -84,6 +84,14 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   },
   enableCloudSync: true,
   lastSyncTime: null,
+  commissionRules: {
+    transferFeePerThousand: 10,
+    minTransferFee: 5,
+    withdrawFeePerThousand: 10,
+    minWithdrawFee: 5,
+    instapayFeePerThousand: 5,
+    minInstapayFee: 5,
+  },
 };
 
 let initPromise: Promise<void> | null = null;
@@ -109,6 +117,9 @@ async function doInitializeDatabase() {
       if (!existingSettings.storeName || existingSettings.storeName === 'محل الهواتف الذكية' || existingSettings.storeName.includes('البرنس')) {
         updates.storeName = '3amory phone';
         updates.storeNameEn = '3amory phone';
+      }
+      if (!existingSettings.commissionRules) {
+        updates.commissionRules = DEFAULT_SETTINGS.commissionRules;
       }
       if (Object.keys(updates).length > 0) {
         await db.settings.update(1, updates);

@@ -1,4 +1,4 @@
-// Firebase Client SDK — reads configuration from Environment Variables
+// Firebase Client SDK — Full Firestore Cloud Sync
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
 import { getFirestore, doc, setDoc, type Firestore } from 'firebase/firestore';
 import { db as localDb } from '../db';
@@ -57,11 +57,16 @@ export async function syncDataToFirebase(): Promise<{ success: boolean; message:
     const wallets = await localDb.wallets.toArray();
     const repairs = await localDb.repairs.toArray();
     const walletTx = await localDb.walletTransactions.toArray();
+    const users = await localDb.users.toArray();
+    const customers = await localDb.customers.toArray();
+    const suppliers = await localDb.suppliers.toArray();
 
     const payload = {
       updatedAt: new Date().toISOString(),
-      storeName: settings?.storeName || 'محل الهواتف',
+      storeName: settings?.storeName || '3amory phone',
       projectId: FIREBASE_CONFIG.projectId,
+      settings: settings || null,
+      commissionRules: settings?.commissionRules || null,
       stats: {
         totalPhones: phones.length,
         availablePhones: phones.filter((p) => p.status === 'available').length,
@@ -71,6 +76,8 @@ export async function syncDataToFirebase(): Promise<{ success: boolean; message:
         totalProfit: invoices.reduce((a, i) => a + i.totalProfit, 0),
         walletsBalance: wallets.reduce((a, w) => a + w.balance, 0),
         walletCommissions: walletTx.reduce((a, t) => a + t.commission, 0),
+        totalCustomers: customers.length,
+        totalSuppliers: suppliers.length,
         pendingRepairs: repairs.filter((r) => r.status !== 'delivered' && r.status !== 'rejected').length,
         readyForPickup: repairs.filter((r) => r.status === 'repaired').length,
       },
@@ -78,24 +85,56 @@ export async function syncDataToFirebase(): Promise<{ success: boolean; message:
     };
 
     if (fDb) {
+      // 1. Sync store summary & settings
       await setDoc(doc(fDb, 'stores', FIREBASE_CONFIG.projectId), payload, { merge: true });
 
-      const recentInvoices = invoices.slice(-20);
+      // 2. Sync wallets
+      for (const w of wallets) {
+        await setDoc(doc(fDb, 'stores', FIREBASE_CONFIG.projectId, 'wallets', w.id), w, { merge: true });
+      }
+
+      // 3. Sync recent wallet transactions
+      const recentTx = walletTx.slice(-50);
+      for (const tx of recentTx) {
+        await setDoc(doc(fDb, 'stores', FIREBASE_CONFIG.projectId, 'walletTransactions', tx.id), tx, { merge: true });
+      }
+
+      // 4. Sync recent invoices
+      const recentInvoices = invoices.slice(-50);
       for (const inv of recentInvoices) {
         await setDoc(doc(fDb, 'stores', FIREBASE_CONFIG.projectId, 'invoices', inv.id), inv, { merge: true });
       }
 
+      // 5. Sync active/recent shifts
+      const recentShifts = shifts.slice(-10);
+      for (const s of recentShifts) {
+        await setDoc(doc(fDb, 'stores', FIREBASE_CONFIG.projectId, 'shifts', s.id), s, { merge: true });
+      }
+
       await localDb.settings.update(1, { lastSyncTime: new Date().toISOString() });
-      return { success: true, message: 'تمت المزامنة المباشرة مع سحابة Firebase بنجاح!' };
+      return { success: true, message: 'تمت مزامنة كافة البيانات والعمولات مع سحابة Firebase بنجاح!' };
     }
 
-    // Fallback: local sync export
-    const backupData = { ...payload, phones, accessories, invoices, wallets, walletTx, repairs, shifts };
+    // Fallback: local sync file export
+    const backupData = {
+      ...payload,
+      phones,
+      accessories,
+      invoices,
+      wallets,
+      walletTx,
+      repairs,
+      shifts,
+      users: users.map((u) => ({ ...u, pin: '***' })),
+      customers,
+      suppliers,
+    };
+
     const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `firebase-cloud-sync-${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `3amory-phone-cloud-sync-${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
 
@@ -103,7 +142,7 @@ export async function syncDataToFirebase(): Promise<{ success: boolean; message:
 
     return {
       success: true,
-      message: 'تم تصدير وتجهيز ملف المزامنة السحابية بنجاح!',
+      message: 'تم تجهيز وتصدير ملف المزامنة السحابية الشامل بنجاح!',
     };
   } catch (error: any) {
     return { success: false, message: `خطأ في المزامنة: ${error?.message}` };
