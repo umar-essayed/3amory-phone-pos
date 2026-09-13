@@ -75,13 +75,13 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   showImeiOnReceipt: true,
   firebaseConfig: {
     apiKey: '',
-    authDomain: '',
-    projectId: '',
-    storageBucket: '',
+    authDomain: 'mobile-pos-2947e.firebaseapp.com',
+    projectId: 'mobile-pos-2947e',
+    storageBucket: 'mobile-pos-2947e.appspot.com',
     messagingSenderId: '',
     appId: '',
   },
-  enableCloudSync: false,
+  enableCloudSync: true,
   lastSyncTime: null,
 };
 

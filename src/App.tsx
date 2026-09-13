@@ -15,6 +15,7 @@ import { ShiftsView } from './views/ShiftsView';
 import { AnalyticsView } from './views/AnalyticsView';
 import { AccountsView } from './views/AccountsView';
 import { SettingsView } from './views/SettingsView';
+import { UsersView } from './views/UsersView';
 
 export function App() {
   const [dbReady, setDbReady] = useState(false);
@@ -76,6 +77,7 @@ export function App() {
           )}
           {activeTab === 'analytics' && <AnalyticsView />}
           {activeTab === 'accounts' && <AccountsView />}
+          {activeTab === 'users' && <UsersView />}
           {activeTab === 'settings' && <SettingsView />}
         </main>
       </div>

@@ -10,6 +10,7 @@ import {
   TrendingUp,
   Users,
   Settings,
+  ShieldCheck,
 } from 'lucide-react';
 import { db } from '../db';
 
@@ -28,10 +29,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     return accs.filter((a) => a.stockQuantity <= a.minStockAlert).length;
   }) || 0;
 
-  const navItems = [
+  const openShift = useLiveQuery(() =>
+    db.shifts.where('status').equals('open').first()
+  );
+
+  interface NavItem {
+    id: string;
+    label: string;
+    icon: React.ElementType;
+    color: string;
+    badge?: string;
+    badgeColor?: string;
+  }
+
+  const navItems: NavItem[] = [
     {
       id: 'pos',
-      label: 'نقطة البيع السريع (POS)',
+      label: 'نقطة البيع (POS)',
       icon: ShoppingCart,
       color: 'text-blue-600',
     },
@@ -39,6 +53,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
       id: 'wallets',
       label: 'فودافون كاش وإنستاباي',
       badge: '⚡ سريع',
+      badgeColor: 'bg-red-500 text-white',
       icon: Zap,
       color: 'text-red-500',
     },
@@ -51,14 +66,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     {
       id: 'accessories',
       label: 'الإكسسوارات والباركود',
-      badge: lowStock > 0 ? `${lowStock} نواقص` : undefined,
+      badge: lowStock > 0 ? `${lowStock} ناقص` : undefined,
       badgeColor: 'bg-red-500 text-white',
       icon: Tag,
       color: 'text-emerald-600',
     },
     {
       id: 'maintenance',
-      label: 'ورشة الصيانة والإيصالات',
+      label: 'ورشة الصيانة',
       badge: pendingRepairs > 0 ? `${pendingRepairs} جاهز` : undefined,
       badgeColor: 'bg-emerald-600 text-white',
       icon: Wrench,
@@ -66,33 +81,42 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     },
     {
       id: 'shifts',
-      label: 'الورديات وجرد الدرج',
+      label: 'الورديات والجرد',
+      badge: openShift ? '● مفتوح' : undefined,
+      badgeColor: 'bg-emerald-500 text-white',
       icon: Clock,
       color: 'text-purple-600',
     },
     {
       id: 'analytics',
-      label: 'التقارير والأرباح الصافية',
+      label: 'التقارير والتحليلات',
       icon: TrendingUp,
       color: 'text-teal-600',
     },
     {
       id: 'accounts',
-      label: 'العملاء والديون والموردين',
+      label: 'العملاء والموردون',
       icon: Users,
       color: 'text-slate-600',
     },
     {
+      id: 'users',
+      label: 'المستخدمون والصلاحيات',
+      icon: ShieldCheck,
+      color: 'text-blue-700',
+    },
+    {
       id: 'settings',
-      label: 'تخصيص وهوية المحل',
+      label: 'إعدادات المحل',
       icon: Settings,
       color: 'text-blue-500',
     },
   ];
 
   return (
-    <aside className="w-full lg:w-64 bg-white border-b lg:border-b-0 lg:border-l border-slate-200 p-3 lg:p-4 flex flex-col justify-between shrink-0 no-print">
-      <div className="flex lg:flex-col gap-1.5 overflow-x-auto lg:overflow-visible pb-1 lg:pb-0">
+    <aside className="w-full lg:w-64 bg-white border-b lg:border-b-0 lg:border-l border-slate-200 flex flex-col justify-between shrink-0 no-print overflow-hidden">
+      {/* Top Nav */}
+      <div className="flex lg:flex-col gap-1 lg:gap-0.5 overflow-x-auto lg:overflow-visible p-2 lg:p-3 lg:pt-4">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -100,23 +124,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              className={`flex items-center justify-between gap-3 px-3.5 py-3 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+              className={`flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer w-full text-right shrink-0 ${
                 isActive
                   ? 'bg-blue-600 text-white shadow-md'
-                  : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
               }`}
             >
               <div className="flex items-center gap-2.5">
-                <Icon className={`h-4 w-4 ${isActive ? 'text-white' : item.color}`} />
+                <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-white' : item.color}`} />
                 <span>{item.label}</span>
               </div>
 
               {item.badge && (
                 <span
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-black shrink-0 ${
                     isActive
-                      ? 'bg-white/20 text-white'
-                      : item.badgeColor || 'bg-red-100 text-red-700'
+                      ? 'bg-white/25 text-white'
+                      : item.badgeColor || 'bg-slate-200 text-slate-600'
                   }`}
                 >
                   {item.badge}
@@ -127,8 +151,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
         })}
       </div>
 
-      <div className="hidden lg:block pt-4 border-t border-slate-100 text-center text-[10px] text-slate-400 font-semibold">
-        Mobile POS Pro v2.0 | يعمل أوفلاين 100%
+      {/* Footer */}
+      <div className="hidden lg:block p-4 border-t border-slate-100">
+        <div className="text-center text-[10px] text-slate-400 font-semibold">
+          <p className="font-display text-[11px] text-slate-500 font-bold mb-0.5">Mobile POS Pro v2.0</p>
+          <p>يعمل أوفلاين 100% · Firebase جاهز</p>
+        </div>
       </div>
     </aside>
   );

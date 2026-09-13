@@ -31,6 +31,7 @@ export const PhonesView: React.FC = () => {
 
   // Modal State
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingPhone, setEditingPhone] = useState<Phone | null>(null);
   const [selectedPhoneForContract, setSelectedPhoneForContract] = useState<Phone | null>(null);
 
   // New Phone Form State
@@ -335,6 +336,14 @@ export const PhonesView: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setEditingPhone(p)}
+                    title="تعديل بيانات وسعر الهاتف"
+                    className="p-2 rounded-xl bg-slate-100 text-blue-600 hover:bg-blue-50 transition cursor-pointer"
+                  >
+                    <Edit className="h-4 w-4" />
+                  </button>
                   {p.condition === 'used' && p.sellerInfo && (
                     <button
                       type="button"
@@ -611,6 +620,146 @@ export const PhonesView: React.FC = () => {
                   className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 text-xs font-bold shadow-md transition cursor-pointer"
                 >
                   حفظ الهاتف في المخزن
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Modal: Edit Existing Phone */}
+      {editingPhone && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs overflow-y-auto">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl my-8">
+            <div className="flex items-center justify-between border-b pb-4 mb-4">
+              <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                <Edit className="h-5 w-5 text-blue-600" />
+                <span>تعديل بيانات وسعر الهاتف</span>
+              </h3>
+              <button onClick={() => setEditingPhone(null)} className="text-slate-400 hover:text-slate-700">
+                ✕
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                await db.phones.update(editingPhone.id, {
+                  name: editingPhone.name,
+                  storage: editingPhone.storage,
+                  color: editingPhone.color,
+                  batteryHealth: editingPhone.batteryHealth,
+                  costPrice: Number(editingPhone.costPrice) || 0,
+                  minSellPrice: Number(editingPhone.minSellPrice) || 0,
+                  sellPrice: Number(editingPhone.sellPrice) || 0,
+                  status: editingPhone.status,
+                  notes: editingPhone.notes,
+                });
+                setEditingPhone(null);
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">اسم الهاتف والموديل</label>
+                <input
+                  type="text"
+                  value={editingPhone.name}
+                  onChange={(e) => setEditingPhone({ ...editingPhone, name: e.target.value })}
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-xs focus:border-blue-600 focus:outline-none"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">السعة</label>
+                  <input
+                    type="text"
+                    value={editingPhone.storage}
+                    onChange={(e) => setEditingPhone({ ...editingPhone, storage: e.target.value })}
+                    className="w-full rounded-xl border border-slate-300 p-2.5 text-xs focus:border-blue-600 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">اللون</label>
+                  <input
+                    type="text"
+                    value={editingPhone.color}
+                    onChange={(e) => setEditingPhone({ ...editingPhone, color: e.target.value })}
+                    className="w-full rounded-xl border border-slate-300 p-2.5 text-xs focus:border-blue-600 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">سعر الشراء</label>
+                  <input
+                    type="number"
+                    value={editingPhone.costPrice}
+                    onChange={(e) => setEditingPhone({ ...editingPhone, costPrice: Number(e.target.value) })}
+                    className="w-full rounded-xl border border-slate-300 p-2 text-xs font-mono focus:border-blue-600 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">الحد الأدنى</label>
+                  <input
+                    type="number"
+                    value={editingPhone.minSellPrice}
+                    onChange={(e) => setEditingPhone({ ...editingPhone, minSellPrice: Number(e.target.value) })}
+                    className="w-full rounded-xl border border-slate-300 p-2 text-xs font-mono focus:border-blue-600 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-blue-900 mb-1">سعر البيع</label>
+                  <input
+                    type="number"
+                    value={editingPhone.sellPrice}
+                    onChange={(e) => setEditingPhone({ ...editingPhone, sellPrice: Number(e.target.value) })}
+                    className="w-full rounded-xl border-2 border-blue-500 p-2 text-xs font-bold font-mono focus:border-blue-600 focus:outline-none"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">حالة التوفر</label>
+                  <select
+                    value={editingPhone.status}
+                    onChange={(e) => setEditingPhone({ ...editingPhone, status: e.target.value as any })}
+                    className="w-full rounded-xl border border-slate-300 p-2 text-xs font-bold bg-white focus:outline-none"
+                  >
+                    <option value="available">متاح للبيع</option>
+                    <option value="sold">تم البيع</option>
+                    <option value="returned">مرتجع</option>
+                  </select>
+                </div>
+                {editingPhone.condition === 'used' && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">نسبة البطارية (%)</label>
+                    <input
+                      type="number"
+                      value={editingPhone.batteryHealth || ''}
+                      onChange={(e) => setEditingPhone({ ...editingPhone, batteryHealth: Number(e.target.value) })}
+                      className="w-full rounded-xl border border-slate-300 p-2 text-xs font-mono focus:border-blue-600 focus:outline-none"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t">
+                <button
+                  type="button"
+                  onClick={() => setEditingPhone(null)}
+                  className="rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 text-xs font-bold shadow"
+                >
+                  تحديث وحفظ التعديلات
                 </button>
               </div>
             </form>

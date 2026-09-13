@@ -34,7 +34,8 @@ export interface StoreSettings {
 
 export interface User {
   id: string;
-  name: string;
+  name?: string;
+  displayName?: string;
   username: string;
   pin: string;
   role: Role;
@@ -222,6 +223,7 @@ export interface Customer {
   name: string;
   phone: string;
   totalDebt: number;
+  totalPaid: number;
   notes?: string;
   createdAt: string;
 }
@@ -229,9 +231,12 @@ export interface Customer {
 export interface Supplier {
   id: string;
   name: string;
+  company?: string;
   companyName?: string;
   phone: string;
-  totalBalanceDue: number;
+  totalOwed: number;
+  totalBalanceDue?: number;
+  totalPaid: number;
   notes?: string;
   createdAt: string;
 }

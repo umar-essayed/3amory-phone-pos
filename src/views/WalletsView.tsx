@@ -16,6 +16,9 @@ import {
   Percent,
   History,
   Building,
+  Edit2,
+  X,
+  Trash2,
 } from 'lucide-react';
 import { db } from '../db';
 import { triggerPrint } from '../services/printer';
@@ -50,6 +53,9 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
   const [newWalletType, setNewWalletType] = useState<StoreWallet['type']>('vodafone');
   const [newWalletAccount, setNewWalletAccount] = useState('');
   const [newWalletBalance, setNewWalletBalance] = useState('');
+
+  // Edit Wallet Modal
+  const [editingWallet, setEditingWallet] = useState<StoreWallet | null>(null);
 
   // Default select first wallet
   React.useEffect(() => {
@@ -302,7 +308,7 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
               <div
                 key={w.id}
                 onClick={() => setSelectedWalletId(w.id)}
-                className={`p-4 rounded-2xl border-2 transition cursor-pointer relative overflow-hidden ${
+                className={`p-4 rounded-2xl border-2 transition cursor-pointer relative overflow-hidden group ${
                   isSelected
                     ? 'border-blue-600 bg-blue-50/50 shadow-md ring-2 ring-blue-600/20'
                     : 'border-slate-200 bg-white hover:border-slate-300'
@@ -326,6 +332,28 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
                   <span className="text-sm font-black font-mono text-slate-900">
                     {w.balance.toLocaleString()} {settings?.currency || 'ج'}
                   </span>
+                </div>
+                {/* Edit/Delete mini icons */}
+                <div className="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setEditingWallet({ ...w }); }}
+                    className="p-1 rounded-lg bg-blue-100 text-blue-600 hover:bg-blue-200 cursor-pointer"
+                  >
+                    <Edit2 className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (confirm(`تعطيل المحفظة "${w.name}"؟`)) {
+                        await db.wallets.update(w.id, { isActive: false });
+                      }
+                    }}
+                    className="p-1 rounded-lg bg-red-100 text-red-500 hover:bg-red-200 cursor-pointer"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
                 </div>
               </div>
             );
@@ -745,6 +773,82 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
                   className="rounded-xl bg-blue-600 px-5 py-2 text-xs font-bold text-white hover:bg-blue-700 shadow"
                 >
                   حفظ المحفظة
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Wallet Modal */}
+      {editingWallet && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl bg-white shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4">
+              <div className="flex items-center gap-2">
+                <Edit2 className="h-5 w-5 text-white" />
+                <h3 className="font-display text-lg font-bold text-white">تعديل بيانات المحفظة</h3>
+              </div>
+              <button onClick={() => setEditingWallet(null)} className="text-white/80 hover:text-white">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                await db.wallets.update(editingWallet.id, {
+                  name: editingWallet.name,
+                  phoneNumberOrAccount: editingWallet.phoneNumberOrAccount,
+                  balance: Number(editingWallet.balance),
+                });
+                setEditingWallet(null);
+              }}
+              className="p-6 space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">اسم المحفظة / الخط</label>
+                <input
+                  type="text"
+                  value={editingWallet.name}
+                  onChange={(e) => setEditingWallet({ ...editingWallet, name: e.target.value })}
+                  className="w-full rounded-xl border border-slate-200 p-2.5 text-sm font-bold focus:border-blue-500 focus:outline-none"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">رقم الهاتف أو الحساب</label>
+                <input
+                  type="text"
+                  value={editingWallet.phoneNumberOrAccount}
+                  onChange={(e) => setEditingWallet({ ...editingWallet, phoneNumberOrAccount: e.target.value })}
+                  className="w-full rounded-xl border border-slate-200 p-2.5 text-sm font-mono focus:border-blue-500 focus:outline-none"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">الرصيد الحالي</label>
+                <input
+                  type="number"
+                  step="any"
+                  value={editingWallet.balance}
+                  onChange={(e) => setEditingWallet({ ...editingWallet, balance: Number(e.target.value) })}
+                  className="w-full rounded-xl border border-slate-200 p-2.5 text-sm font-mono font-bold focus:border-blue-500 focus:outline-none"
+                  required
+                />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingWallet(null)}
+                  className="flex-1 rounded-xl border border-slate-200 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 rounded-xl bg-blue-600 hover:bg-blue-700 text-white py-2.5 text-xs font-bold shadow-md"
+                >
+                  حفظ التعديل
                 </button>
               </div>
             </form>

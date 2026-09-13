@@ -2,18 +2,14 @@ import React from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   Store,
-  User,
-  Clock,
   Cloud,
   CloudOff,
-  RefreshCw,
-  Wallet,
   Settings,
-  ShieldAlert,
+  ChevronDown,
+  RefreshCw,
 } from 'lucide-react';
 import { db } from '../db';
 import { syncDataToFirebase } from '../services/firebase';
-import type { StoreSettings } from '../types';
 
 interface HeaderProps {
   currentRole: string;
@@ -21,6 +17,13 @@ interface HeaderProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
 }
+
+const ROLE_LABELS: Record<string, string> = {
+  owner: 'مالك',
+  manager: 'مدير',
+  cashier: 'كاشير',
+  technician: 'تقني',
+};
 
 export const Header: React.FC<HeaderProps> = ({
   currentRole,
@@ -30,6 +33,7 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const settings = useLiveQuery(() => db.settings.get(1));
   const openShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
+  const users = useLiveQuery(() => db.users.where('isActive').equals(1).toArray()) || [];
   const [syncing, setSyncing] = React.useState(false);
 
   const handleCloudSync = async () => {
@@ -39,106 +43,129 @@ export const Header: React.FC<HeaderProps> = ({
     alert(res.message);
   };
 
+  const drawerBalance = openShift?.closingCashSystem || 0;
+  const cur = settings?.currency || 'ج.م';
+
   return (
     <header className="sticky top-0 z-40 bg-white border-b border-slate-200 px-4 sm:px-6 py-2.5 shadow-xs no-print">
       <div className="flex items-center justify-between gap-4">
-        {/* Store Logo & Name */}
-        <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('pos')}>
+        {/* Logo & Store Name */}
+        <div className="flex items-center gap-3 cursor-pointer shrink-0" onClick={() => setActiveTab('pos')}>
           {settings?.logoUrl ? (
             <img
               src={settings.logoUrl}
               alt={settings.storeName}
-              className="h-10 w-10 object-contain rounded-xl border border-slate-200 shadow-xs"
+              className="h-10 w-10 object-contain rounded-xl border border-slate-200 shadow-xs bg-white"
               onError={(e) => {
                 (e.target as HTMLElement).style.display = 'none';
               }}
             />
           ) : (
-            <div className="h-10 w-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-black">
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white flex items-center justify-center">
               <Store className="h-5 w-5" />
             </div>
           )}
 
           <div>
-            <h1 className="text-base font-black text-slate-900 leading-tight">
+            <h1 className="font-display text-base font-black text-slate-900 leading-tight">
               {settings?.storeName || 'محل الهواتف الذكية'}
             </h1>
-            <p className="text-[11px] text-slate-400 font-semibold truncate max-w-[200px]">
-              {settings?.phone1 ? `خدمة العملاء: ${settings.phone1}` : 'نظام Mobile POS Pro'}
+            <p className="text-[10px] text-slate-400 font-semibold hidden sm:block">
+              {settings?.phone1 ? settings.phone1 : 'Mobile POS Pro'}
             </p>
           </div>
         </div>
 
-        {/* Center: Live Shift Drawer Balance */}
-        <div className="hidden md:flex items-center gap-4 bg-slate-50 border border-slate-200/80 px-4 py-1.5 rounded-2xl">
-          <div className="flex items-center gap-2">
-            <span className="relative flex h-2.5 w-2.5">
-              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${openShift ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
-              <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${openShift ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
+        {/* Center: Active Shift Status */}
+        <div className="hidden md:flex items-center gap-3 bg-slate-50 border border-slate-200/80 px-4 py-1.5 rounded-2xl">
+          <div className="flex items-center gap-1.5">
+            <span className="relative flex h-2 w-2">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${openShift ? 'bg-emerald-400' : 'bg-slate-400'}`} />
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${openShift ? 'bg-emerald-500' : 'bg-slate-400'}`} />
             </span>
             <span className="text-xs font-bold text-slate-600">
-              {openShift ? `وردية مفتوحة #${openShift.shiftNumber}` : 'لا توجد وردية'}
+              {openShift ? `وردية #${openShift.shiftNumber}` : 'لا توجد وردية'}
             </span>
           </div>
 
           {openShift && (
-            <div className="border-r border-slate-200 pr-3 flex items-center gap-2">
-              <span className="text-[11px] text-slate-400 font-semibold">كاش الدرج الحالي:</span>
-              <span className="text-sm font-black font-mono text-emerald-700">
-                {openShift.closingCashSystem.toLocaleString()} {settings?.currency || 'ج'}
+            <>
+              <div className="h-4 w-px bg-slate-200" />
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-slate-400 font-semibold">رصيد الدرج:</span>
+                <span className="text-sm font-black font-mono text-emerald-700">
+                  {drawerBalance.toLocaleString()} {cur}
+                </span>
+              </div>
+            </>
+          )}
+
+          {settings?.lastSyncTime && (
+            <>
+              <div className="h-4 w-px bg-slate-200" />
+              <span className="text-[10px] text-slate-400">
+                آخر مزامنة: {new Date(settings.lastSyncTime).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
               </span>
-            </div>
+            </>
           )}
         </div>
 
-        {/* Left Side: Cloud Sync & User Profile */}
+        {/* Right: Actions */}
         <div className="flex items-center gap-2">
-          {/* Cloud Sync Button */}
+          {/* Firebase Sync Button */}
           <button
             onClick={handleCloudSync}
             disabled={syncing}
-            title={settings?.enableCloudSync ? 'مزامنة مع سحابة Firebase' : 'المزامنة السحابية غير مفعلة (أوفلاين)'}
+            title="مزامنة مع Firebase"
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition border cursor-pointer ${
               settings?.enableCloudSync
                 ? 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'
-                : 'bg-slate-100 border-slate-200 text-slate-500'
+                : 'bg-slate-100 border-slate-200 text-slate-400 hover:bg-slate-200'
             }`}
           >
-            {settings?.enableCloudSync ? (
-              <Cloud className={`h-3.5 w-3.5 ${syncing ? 'animate-bounce' : ''}`} />
+            {syncing ? (
+              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+            ) : settings?.enableCloudSync ? (
+              <Cloud className="h-3.5 w-3.5" />
             ) : (
               <CloudOff className="h-3.5 w-3.5" />
             )}
-            <span className="hidden sm:inline">
-              {settings?.enableCloudSync ? (syncing ? 'مزامنة...' : 'سحابي') : 'أوفلاين محلي'}
-            </span>
+            <span className="hidden sm:inline">{syncing ? '...' : settings?.enableCloudSync ? 'سحابة' : 'أوفلاين'}</span>
           </button>
 
-          {/* Quick Settings Icon */}
+          {/* Settings Quick Access */}
           <button
             onClick={() => setActiveTab('settings')}
-            title="تخصيص المحل والإعدادات"
+            title="إعدادات المحل"
             className={`p-2 rounded-xl border transition cursor-pointer ${
               activeTab === 'settings'
                 ? 'bg-blue-600 text-white border-blue-600'
-                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'
             }`}
           >
             <Settings className="h-4 w-4" />
           </button>
 
-          {/* Cashier / Role Switcher */}
-          <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1 border border-slate-200">
-            <User className="h-3.5 w-3.5 text-slate-500 mr-1" />
+          {/* Cashier Selector — live from DB users */}
+          <div className="flex items-center gap-1.5 bg-slate-100 rounded-xl px-3 py-1.5 border border-slate-200">
+            <div className="h-6 w-6 rounded-lg bg-blue-600 text-white flex items-center justify-center text-[10px] font-black shrink-0">
+              {currentRole.charAt(0)}
+            </div>
             <select
               value={currentRole}
               onChange={(e) => setCurrentRole(e.target.value)}
-              className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+              className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer max-w-[100px] truncate"
             >
-              <option value="المدير العام (المالك)">المدير (المالك)</option>
-              <option value="كاشير المحل">كاشير المبيعات</option>
-              <option value="فني الصيانة">فني الصيانة</option>
+              {/* Static roles */}
+              <option value="المدير العام (المالك)">مالك</option>
+              {/* Dynamic users from DB */}
+              {users.map((u) => (
+                <option key={u.id} value={u.displayName || u.username}>
+                  {u.displayName || u.username} ({ROLE_LABELS[u.role] || u.role})
+                </option>
+              ))}
             </select>
+            <ChevronDown className="h-3 w-3 text-slate-400 shrink-0" />
           </div>
         </div>
       </div>

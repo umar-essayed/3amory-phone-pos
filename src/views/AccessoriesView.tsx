@@ -11,11 +11,27 @@ import {
   Tag,
   Edit2,
   Trash2,
-  CheckCircle2,
   Layers,
+  X,
+  CheckCircle2,
+  TrendingUp,
 } from 'lucide-react';
 import { db } from '../db';
-import type { Accessory, StoreSettings } from '../types';
+import type { Accessory } from '../types';
+
+const CATEGORIES = ['جرابات', 'سكرينات', 'شواحن', 'كابلات', 'سماعات', 'ساعات ذكية', 'باور بنك', 'قطع غيار', 'إكسسوارات', 'أخرى'];
+
+const EMPTY_FORM = {
+  name: '',
+  category: 'جرابات',
+  barcode: '',
+  costPrice: '',
+  sellPriceRetail: '',
+  sellPriceWholesale: '',
+  stockQuantity: '',
+  minStockAlert: '5',
+  location: '',
+};
 
 export const AccessoriesView: React.FC = () => {
   const accessories = useLiveQuery(() => db.accessories.orderBy('createdAt').reverse().toArray()) || [];
@@ -24,38 +40,28 @@ export const AccessoriesView: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingAcc, setEditingAcc] = useState<Accessory | null>(null);
   const [barcodeModalItem, setBarcodeModalItem] = useState<Accessory | null>(null);
   const barcodeSvgRef = useRef<SVGSVGElement | null>(null);
+  const [saved, setSaved] = useState(false);
 
-  // Add Item Form
-  const [name, setName] = useState('');
-  const [category, setCategory] = useState('جرابات');
-  const [barcode, setBarcode] = useState('');
-  const [costPrice, setCostPrice] = useState('');
-  const [sellPriceRetail, setSellPriceRetail] = useState('');
-  const [sellPriceWholesale, setSellPriceWholesale] = useState('');
-  const [stockQuantity, setStockQuantity] = useState('');
-  const [minStockAlert, setMinStockAlert] = useState('5');
-  const [location, setLocation] = useState('');
-
-  const categories = ['جرابات', 'سكرينات', 'شواحن', 'كابلات', 'سماعات', 'ساعات ذكية', 'باور بنك', 'قطع غيار', 'أخرى'];
+  // Add Form State
+  const [form, setForm] = useState(EMPTY_FORM);
 
   const generateRandomBarcode = () => {
-    // Generate 12-digit EAN/Code128 barcode
     const random = Math.floor(100000000000 + Math.random() * 900000000000);
-    setBarcode(random.toString());
+    setForm((f) => ({ ...f, barcode: random.toString() }));
   };
 
   const handleAddAccessory = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !sellPriceRetail || !stockQuantity) {
+    if (!form.name || !form.sellPriceRetail || !form.stockQuantity) {
       alert('يرجى ملء الحقول الأساسية: الاسم، سعر القطاعي، والكمية.');
       return;
     }
 
-    const finalBarcode = barcode.trim() || Math.floor(100000000000 + Math.random() * 900000000000).toString();
+    const finalBarcode = form.barcode.trim() || Math.floor(100000000000 + Math.random() * 900000000000).toString();
 
-    // Check duplicate barcode
     const existing = await db.accessories.where('barcode').equals(finalBarcode).first();
     if (existing) {
       alert('تنبيه: هذا الباركود مسجل مسبقاً لصنف آخر!');
@@ -64,36 +70,43 @@ export const AccessoriesView: React.FC = () => {
 
     const newAcc: Accessory = {
       id: `acc_${Date.now()}`,
-      name: name.trim(),
-      category,
+      name: form.name.trim(),
+      category: form.category,
       barcode: finalBarcode,
-      costPrice: parseFloat(costPrice) || 0,
-      sellPriceRetail: parseFloat(sellPriceRetail),
-      sellPriceWholesale: parseFloat(sellPriceWholesale) || parseFloat(sellPriceRetail),
-      stockQuantity: parseInt(stockQuantity) || 0,
-      minStockAlert: parseInt(minStockAlert) || 5,
-      location: location.trim() || undefined,
+      costPrice: parseFloat(form.costPrice) || 0,
+      sellPriceRetail: parseFloat(form.sellPriceRetail),
+      sellPriceWholesale: parseFloat(form.sellPriceWholesale) || parseFloat(form.sellPriceRetail),
+      stockQuantity: parseInt(form.stockQuantity) || 0,
+      minStockAlert: parseInt(form.minStockAlert) || 5,
+      location: form.location.trim() || undefined,
       createdAt: new Date().toISOString(),
     };
 
     await db.accessories.add(newAcc);
     setShowAddModal(false);
-    resetForm();
+    setForm(EMPTY_FORM);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
   };
 
-  const resetForm = () => {
-    setName('');
-    setCategory('جرابات');
-    setBarcode('');
-    setCostPrice('');
-    setSellPriceRetail('');
-    setSellPriceWholesale('');
-    setStockQuantity('');
-    setMinStockAlert('5');
-    setLocation('');
+  const handleEditSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAcc) return;
+    await db.accessories.update(editingAcc.id, {
+      name: editingAcc.name,
+      category: editingAcc.category,
+      costPrice: Number(editingAcc.costPrice),
+      sellPriceRetail: Number(editingAcc.sellPriceRetail),
+      sellPriceWholesale: Number(editingAcc.sellPriceWholesale),
+      stockQuantity: Number(editingAcc.stockQuantity),
+      minStockAlert: Number(editingAcc.minStockAlert),
+      location: editingAcc.location,
+    });
+    setEditingAcc(null);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
   };
 
-  // Render barcode in modal when item selected
   useEffect(() => {
     if (barcodeModalItem && barcodeSvgRef.current) {
       try {
@@ -116,80 +129,252 @@ export const AccessoriesView: React.FC = () => {
       acc.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       acc.barcode.includes(searchQuery) ||
       acc.category.includes(searchQuery);
-
     const matchesCat = selectedCategory === 'all' || acc.category === selectedCategory;
     return matchesSearch && matchesCat;
   });
 
-  const lowStockCount = accessories.filter((a) => a.stockQuantity <= a.minStockAlert).length;
+  const lowStockItems = accessories.filter((a) => a.stockQuantity <= a.minStockAlert);
   const totalStockItems = accessories.reduce((acc, a) => acc + a.stockQuantity, 0);
+  const totalStockValue = accessories.reduce((acc, a) => acc + a.stockQuantity * a.sellPriceRetail, 0);
+  const cur = settings?.currency || 'ج.م';
+
+  // ─── MODAL: Add / Edit shared form fields ───────────────────────────────
+  const ModalFields = ({
+    v,
+    setV,
+    isEdit = false,
+  }: {
+    v: typeof EMPTY_FORM | Accessory;
+    setV: any;
+    isEdit?: boolean;
+  }) => (
+    <div className="space-y-4">
+      <div>
+        <label className="block text-xs font-bold text-slate-700 mb-1.5">اسم الصنف بالكامل *</label>
+        <input
+          type="text"
+          value={v.name}
+          onChange={(e) => setV((p: any) => ({ ...p, name: e.target.value }))}
+          placeholder="مثال: شاحن أنكر 20W فاست شارج..."
+          className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-semibold focus:border-blue-500 focus:bg-white focus:outline-none transition"
+          required
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-bold text-slate-700 mb-1.5">التصنيف</label>
+          <select
+            value={v.category}
+            onChange={(e) => setV((p: any) => ({ ...p, category: e.target.value }))}
+            className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-bold focus:border-blue-500 focus:outline-none"
+          >
+            {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+
+        {!isEdit && (
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-bold text-slate-700">الباركود</label>
+              <button
+                type="button"
+                onClick={generateRandomBarcode}
+                className="text-[11px] text-blue-600 hover:underline font-semibold cursor-pointer"
+              >
+                توليد تلقائي
+              </button>
+            </div>
+            <input
+              type="text"
+              value={(v as any).barcode || ''}
+              onChange={(e) => setV((p: any) => ({ ...p, barcode: e.target.value }))}
+              placeholder="امسح أو اكتب الباركود"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-mono focus:border-blue-500 focus:outline-none"
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Prices */}
+      <div className="grid grid-cols-3 gap-3 bg-gradient-to-br from-blue-50 to-indigo-50/40 p-4 rounded-2xl border border-blue-100">
+        <div>
+          <label className="block text-[11px] font-bold text-slate-600 mb-1.5">سعر التكلفة</label>
+          <input
+            type="number"
+            value={v.costPrice as any}
+            onChange={(e) => setV((p: any) => ({ ...p, costPrice: e.target.value }))}
+            placeholder="0"
+            className="w-full rounded-xl border border-slate-200 p-2.5 text-sm font-mono focus:border-blue-500 focus:outline-none bg-white"
+          />
+        </div>
+        <div>
+          <label className="block text-[11px] font-bold text-blue-800 mb-1.5">سعر القطاعي *</label>
+          <input
+            type="number"
+            value={v.sellPriceRetail as any}
+            onChange={(e) => setV((p: any) => ({ ...p, sellPriceRetail: e.target.value }))}
+            placeholder="0"
+            className="w-full rounded-xl border-2 border-blue-400 p-2.5 text-sm font-black font-mono focus:border-blue-600 focus:outline-none bg-white"
+            required
+          />
+        </div>
+        <div>
+          <label className="block text-[11px] font-bold text-slate-600 mb-1.5">سعر الجملة</label>
+          <input
+            type="number"
+            value={v.sellPriceWholesale as any}
+            onChange={(e) => setV((p: any) => ({ ...p, sellPriceWholesale: e.target.value }))}
+            placeholder="0"
+            className="w-full rounded-xl border border-slate-200 p-2.5 text-sm font-mono focus:border-blue-500 focus:outline-none bg-white"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <label className="block text-xs font-bold text-slate-700 mb-1.5">الكمية بالمخزن *</label>
+          <input
+            type="number"
+            value={v.stockQuantity as any}
+            onChange={(e) => setV((p: any) => ({ ...p, stockQuantity: e.target.value }))}
+            placeholder="0"
+            className="w-full rounded-xl border border-slate-200 p-2.5 text-sm font-mono focus:border-blue-500 focus:outline-none bg-slate-50"
+            required
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-bold text-slate-700 mb-1.5">حد التنبيه</label>
+          <input
+            type="number"
+            value={v.minStockAlert as any}
+            onChange={(e) => setV((p: any) => ({ ...p, minStockAlert: e.target.value }))}
+            placeholder="5"
+            className="w-full rounded-xl border border-slate-200 p-2.5 text-sm font-mono focus:border-blue-500 focus:outline-none bg-slate-50"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-bold text-slate-700 mb-1.5">مكان التخزين</label>
+          <input
+            type="text"
+            value={v.location || ''}
+            onChange={(e) => setV((p: any) => ({ ...p, location: e.target.value }))}
+            placeholder="رف A3"
+            className="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:border-blue-500 focus:outline-none bg-slate-50"
+          />
+        </div>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="space-y-6 pb-12">
-      {/* Top Banner Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white p-5 rounded-2xl shadow-xs border border-slate-200 flex items-center justify-between">
-          <div>
-            <p className="text-xs text-slate-500 font-bold">إجمالي أصناف الإكسسوارات</p>
-            <h3 className="text-2xl font-black text-slate-900 mt-1 font-mono">{accessories.length} صنف</h3>
-            <span className="text-[10px] text-blue-600 font-semibold">{totalStockItems} قطعة في المخزن</span>
+    <div className="space-y-5 pb-12">
+      {/* Success Banner */}
+      {saved && (
+        <div className="flex items-center gap-3 rounded-2xl bg-emerald-500 text-white px-5 py-3.5 font-bold shadow-lg animate-bounce">
+          <CheckCircle2 className="h-5 w-5" />
+          <span>تم الحفظ بنجاح!</span>
+        </div>
+      )}
+
+      {/* Top Stats Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-xs flex items-center gap-4">
+          <div className="h-12 w-12 rounded-2xl bg-blue-50 flex items-center justify-center shrink-0">
+            <Package className="h-6 w-6 text-blue-600" />
           </div>
-          <div className="h-12 w-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-            <Package className="h-6 w-6" />
+          <div>
+            <p className="text-[11px] text-slate-400 font-semibold">إجمالي الأصناف</p>
+            <p className="text-2xl font-black text-slate-900 font-mono">{accessories.length}</p>
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl shadow-xs border border-slate-200 flex items-center justify-between">
-          <div>
-            <p className="text-xs text-slate-500 font-bold">تنبيهات النواقص (حد الطلب)</p>
-            <h3 className="text-2xl font-black text-red-600 mt-1 font-mono">{lowStockCount}</h3>
-            <span className="text-[10px] text-red-500 font-semibold">تحتاج لإعادة طلب وتوريد</span>
+        <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-xs flex items-center gap-4">
+          <div className="h-12 w-12 rounded-2xl bg-emerald-50 flex items-center justify-center shrink-0">
+            <Layers className="h-6 w-6 text-emerald-600" />
           </div>
-          <div className="h-12 w-12 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
-            <AlertTriangle className="h-6 w-6" />
+          <div>
+            <p className="text-[11px] text-slate-400 font-semibold">إجمالي القطع</p>
+            <p className="text-2xl font-black text-slate-900 font-mono">{totalStockItems.toLocaleString()}</p>
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl shadow-xs border border-slate-200 flex items-center justify-between">
-          <div>
-            <p className="text-xs text-slate-500 font-bold">التصنيفات المتاحة</p>
-            <h3 className="text-2xl font-black text-slate-900 mt-1 font-mono">{categories.length}</h3>
-            <span className="text-[10px] text-emerald-600 font-semibold">شواحن، جرابات، سكرينات...</span>
+        <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-xs flex items-center gap-4">
+          <div className="h-12 w-12 rounded-2xl bg-amber-50 flex items-center justify-center shrink-0">
+            <TrendingUp className="h-6 w-6 text-amber-600" />
           </div>
-          <div className="h-12 w-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-            <Layers className="h-6 w-6" />
+          <div>
+            <p className="text-[11px] text-slate-400 font-semibold">قيمة المخزون</p>
+            <p className="text-lg font-black text-slate-900 font-mono">{totalStockValue.toLocaleString()} {cur}</p>
+          </div>
+        </div>
+
+        <div
+          className={`rounded-2xl border p-5 shadow-xs flex items-center gap-4 cursor-pointer transition ${
+            lowStockItems.length > 0
+              ? 'bg-red-50 border-red-200 animate-pulse'
+              : 'bg-white border-slate-100'
+          }`}
+        >
+          <div className={`h-12 w-12 rounded-2xl flex items-center justify-center shrink-0 ${
+            lowStockItems.length > 0 ? 'bg-red-100' : 'bg-slate-50'
+          }`}>
+            <AlertTriangle className={`h-6 w-6 ${lowStockItems.length > 0 ? 'text-red-600' : 'text-slate-400'}`} />
+          </div>
+          <div>
+            <p className="text-[11px] text-slate-400 font-semibold">تنبيهات النواقص</p>
+            <p className={`text-2xl font-black font-mono ${lowStockItems.length > 0 ? 'text-red-600' : 'text-slate-900'}`}>
+              {lowStockItems.length}
+            </p>
           </div>
         </div>
       </div>
 
-      {/* Control Bar: Search, Category Filter, and Add Button */}
-      <div className="bg-white p-4 rounded-2xl shadow-xs border border-slate-200 flex flex-col md:flex-row items-center justify-between gap-4">
-        <div className="relative w-full md:w-80">
+      {/* Low Stock Alert Bar */}
+      {lowStockItems.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+          <p className="text-xs font-bold text-red-800 mb-2 flex items-center gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            أصناف وصلت حد الطلب وتحتاج إعادة توريد:
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {lowStockItems.map((a) => (
+              <span key={a.id} className="px-3 py-1 bg-red-100 text-red-800 rounded-full text-[11px] font-bold border border-red-200">
+                {a.name} — متبقي: {a.stockQuantity}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Control Bar */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-xs p-4 flex flex-col md:flex-row items-center gap-3">
+        <div className="relative flex-1 w-full">
+          <Search className="absolute right-3.5 top-3 h-4 w-4 text-slate-400" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="بحث بالاسم أو الباركود..."
-            className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pr-10 pl-4 text-xs font-semibold focus:border-blue-600 focus:bg-white focus:outline-none"
+            placeholder="بحث بالاسم أو الباركود أو التصنيف..."
+            className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pr-10 pl-4 text-sm font-semibold focus:border-blue-500 focus:bg-white focus:outline-none transition"
           />
-          <Search className="absolute right-3.5 top-3 h-4 w-4 text-slate-400" />
         </div>
 
-        {/* Category Pills */}
-        <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
+        {/* Category pills */}
+        <div className="flex items-center gap-1.5 overflow-x-auto flex-nowrap pb-1 md:pb-0 w-full md:w-auto">
           <button
             onClick={() => setSelectedCategory('all')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition shrink-0 ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
               selectedCategory === 'all' ? 'bg-blue-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
             الكل
           </button>
-          {categories.map((c) => (
+          {CATEGORIES.map((c) => (
             <button
               key={c}
               onClick={() => setSelectedCategory(c)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition shrink-0 ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
                 selectedCategory === c ? 'bg-blue-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
@@ -199,94 +384,83 @@ export const AccessoriesView: React.FC = () => {
         </div>
 
         <button
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-5 py-2.5 shadow-md transition shrink-0 cursor-pointer"
+          onClick={() => { setForm(EMPTY_FORM); setShowAddModal(true); }}
+          className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs px-5 py-2.5 shadow-md transition shrink-0 cursor-pointer"
         >
           <Plus className="h-4 w-4" />
-          <span>إضافة صنف إكسسوار جديد</span>
+          <span>إضافة صنف</span>
         </button>
       </div>
 
       {/* Accessories Table */}
-      <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-right text-xs">
-            <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
+            <thead className="bg-slate-50 border-b border-slate-100 text-slate-500 font-bold">
               <tr>
                 <th className="p-4">الصنف</th>
                 <th className="p-4">الباركود</th>
-                <th className="p-4">التصنيف</th>
-                <th className="p-4">سعر التكلفة</th>
-                <th className="p-4">سعر القطاعي</th>
-                <th className="p-4">سعر الجملة</th>
-                <th className="p-4 text-center">الكمية بالمخزن</th>
+                <th className="p-4">الفئة</th>
+                <th className="p-4 text-left">تكلفة</th>
+                <th className="p-4 text-left">قطاعي</th>
+                <th className="p-4 text-left">جملة</th>
+                <th className="p-4 text-center">الكمية</th>
                 <th className="p-4 text-center">إجراءات</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-slate-50">
               {filteredAccessories.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-12 text-center text-slate-400">
-                    لا توجد أصناف مسجلة مطابقة للبحث.
+                  <td colSpan={8} className="py-16 text-center text-slate-400">
+                    لا توجد أصناف مطابقة.
                   </td>
                 </tr>
               ) : (
                 filteredAccessories.map((acc) => {
                   const isLow = acc.stockQuantity <= acc.minStockAlert;
                   return (
-                    <tr key={acc.id} className="hover:bg-slate-50 transition">
+                    <tr key={acc.id} className="hover:bg-slate-50/60 transition group">
                       <td className="p-4">
-                        <div className="font-bold text-slate-900">{acc.name}</div>
-                        {acc.location && (
-                          <div className="text-[10px] text-slate-400 mt-0.5">المكان: {acc.location}</div>
-                        )}
+                        <p className="font-bold text-slate-900 group-hover:text-blue-700 transition">{acc.name}</p>
+                        {acc.location && <p className="text-[10px] text-slate-400 mt-0.5">📍 {acc.location}</p>}
                       </td>
-                      <td className="p-4 font-mono font-bold text-slate-700">{acc.barcode}</td>
+                      <td className="p-4 font-mono text-slate-600 text-[11px]">{acc.barcode}</td>
                       <td className="p-4">
-                        <span className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 font-semibold text-[11px]">
+                        <span className="px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 font-semibold text-[11px] border border-indigo-100">
                           {acc.category}
                         </span>
                       </td>
-                      <td className="p-4 font-mono text-slate-500">
-                        {acc.costPrice.toLocaleString()} {settings?.currency || 'ج'}
+                      <td className="p-4 font-mono text-slate-400 text-left">{acc.costPrice.toLocaleString()}</td>
+                      <td className="p-4 font-mono font-black text-blue-700 text-sm text-left">
+                        {acc.sellPriceRetail.toLocaleString()} {cur}
                       </td>
-                      <td className="p-4 font-mono font-black text-blue-700 text-sm">
-                        {acc.sellPriceRetail.toLocaleString()} {settings?.currency || 'ج'}
-                      </td>
-                      <td className="p-4 font-mono font-bold text-slate-800">
-                        {acc.sellPriceWholesale.toLocaleString()} {settings?.currency || 'ج'}
+                      <td className="p-4 font-mono font-bold text-slate-700 text-left">
+                        {acc.sellPriceWholesale.toLocaleString()} {cur}
                       </td>
                       <td className="p-4 text-center">
-                        <span
-                          className={`inline-block px-3 py-1 rounded-full font-mono font-black text-xs ${
-                            isLow
-                              ? 'bg-red-100 text-red-700 border border-red-200 animate-pulse'
-                              : 'bg-emerald-100 text-emerald-800'
-                          }`}
-                        >
-                          {acc.stockQuantity} قطعة
+                        <span className={`inline-block px-3 py-1 rounded-full font-mono font-black text-xs transition ${
+                          isLow
+                            ? 'bg-red-100 text-red-700 border border-red-200'
+                            : 'bg-emerald-100 text-emerald-800'
+                        }`}>
+                          {acc.stockQuantity}
                         </span>
                       </td>
-                      <td className="p-4 text-center">
-                        <div className="flex items-center justify-center gap-1.5">
+                      <td className="p-4">
+                        <div className="flex items-center justify-center gap-1.5 opacity-60 group-hover:opacity-100 transition">
                           <button
                             type="button"
                             onClick={() => setBarcodeModalItem(acc)}
-                            title="طباعة ستيكر باركود للصنف"
+                            title="طباعة ستيكر باركود"
                             className="p-1.5 rounded-lg bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-600 transition cursor-pointer"
                           >
                             <Barcode className="h-4 w-4" />
                           </button>
                           <button
                             type="button"
-                            onClick={async () => {
-                              const newQty = prompt('أدخل الكمية الجديدة للمخزن:', acc.stockQuantity.toString());
-                              if (newQty !== null && !isNaN(parseInt(newQty))) {
-                                await db.accessories.update(acc.id, { stockQuantity: parseInt(newQty) });
-                              }
-                            }}
-                            title="تعديل الكمية"
-                            className="p-1.5 rounded-lg bg-slate-100 hover:bg-emerald-50 hover:text-emerald-600 text-slate-600 transition cursor-pointer"
+                            onClick={() => setEditingAcc({ ...acc })}
+                            title="تعديل"
+                            className="p-1.5 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-slate-600 transition cursor-pointer"
                           >
                             <Edit2 className="h-4 w-4" />
                           </button>
@@ -313,149 +487,38 @@ export const AccessoriesView: React.FC = () => {
         </div>
       </div>
 
-      {/* Modal: Add New Accessory */}
+      {/* MODAL: Add New Accessory */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl">
-            <div className="flex items-center justify-between border-b pb-4 mb-4">
-              <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
-                <Package className="h-5 w-5 text-blue-600" />
-                <span>إضافة صنف إكسسوار / قطعة غيار للمحل</span>
-              </h3>
-              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-700">
-                ✕
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-xl rounded-3xl bg-white shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-xl bg-white/20 flex items-center justify-center">
+                  <Package className="h-5 w-5 text-white" />
+                </div>
+                <h3 className="font-display text-lg font-bold text-white">إضافة صنف إكسسوار جديد</h3>
+              </div>
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="p-2 rounded-xl bg-white/20 text-white hover:bg-white/30 transition cursor-pointer"
+              >
+                <X className="h-4 w-4" />
               </button>
             </div>
 
-            <form onSubmit={handleAddAccessory} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-700 mb-1">اسم الصنف بالكامل</label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="مثال: شاحن أنكر 20W فاست شارج أو سكرينة 11D آيفون 15"
-                    className="w-full rounded-xl border border-slate-300 p-2.5 text-xs focus:border-blue-600 focus:outline-none"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">التصنيف</label>
-                  <select
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 p-2.5 text-xs bg-white focus:border-blue-600 focus:outline-none"
-                  >
-                    {categories.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-bold text-slate-700">الباركود</label>
-                    <button
-                      type="button"
-                      onClick={generateRandomBarcode}
-                      className="text-[11px] text-blue-600 hover:underline font-semibold"
-                    >
-                      توليد كود تلقائي
-                    </button>
-                  </div>
-                  <input
-                    type="text"
-                    value={barcode}
-                    onChange={(e) => setBarcode(e.target.value)}
-                    placeholder="امسح بالباركود سكانر أو ولد كود"
-                    className="w-full rounded-xl border border-slate-300 p-2.5 text-xs font-mono focus:border-blue-600 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">سعر التكلفة (الشراء)</label>
-                  <input
-                    type="number"
-                    value={costPrice}
-                    onChange={(e) => setCostPrice(e.target.value)}
-                    placeholder="0.00"
-                    className="w-full rounded-xl border border-slate-300 p-2 text-xs font-mono focus:border-blue-600 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-blue-900 mb-1">سعر البيع (قطاعي)</label>
-                  <input
-                    type="number"
-                    value={sellPriceRetail}
-                    onChange={(e) => setSellPriceRetail(e.target.value)}
-                    placeholder="0.00"
-                    className="w-full rounded-xl border-2 border-blue-400 p-2 text-xs font-bold font-mono focus:border-blue-600 focus:outline-none"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">سعر الجملة (لأصحاب المحلات)</label>
-                  <input
-                    type="number"
-                    value={sellPriceWholesale}
-                    onChange={(e) => setSellPriceWholesale(e.target.value)}
-                    placeholder="0.00"
-                    className="w-full rounded-xl border border-slate-300 p-2 text-xs font-mono focus:border-blue-600 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">الكمية المتوفرة بالمخزن</label>
-                  <input
-                    type="number"
-                    value={stockQuantity}
-                    onChange={(e) => setStockQuantity(e.target.value)}
-                    placeholder="0"
-                    className="w-full rounded-xl border border-slate-300 p-2 text-xs font-mono focus:border-blue-600 focus:outline-none"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">حد تنبيه النواقص</label>
-                  <input
-                    type="number"
-                    value={minStockAlert}
-                    onChange={(e) => setMinStockAlert(e.target.value)}
-                    placeholder="5"
-                    className="w-full rounded-xl border border-slate-300 p-2 text-xs font-mono focus:border-blue-600 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">مكان التخزين (الرف / الدرج)</label>
-                  <input
-                    type="text"
-                    value={location}
-                    onChange={(e) => setLocation(e.target.value)}
-                    placeholder="مثال: رف A3 أو فاترينة 1"
-                    className="w-full rounded-xl border border-slate-300 p-2 text-xs focus:border-blue-600 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t">
+            <form onSubmit={handleAddAccessory} className="p-6 space-y-5">
+              <ModalFields v={form} setV={setForm} isEdit={false} />
+              <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                  className="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
                 >
                   إلغاء
                 </button>
                 <button
                   type="submit"
-                  className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 text-xs font-bold shadow transition"
+                  className="rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white px-6 py-2.5 text-sm font-bold shadow-md transition cursor-pointer"
                 >
                   حفظ الصنف
                 </button>
@@ -465,45 +528,90 @@ export const AccessoriesView: React.FC = () => {
         </div>
       )}
 
-      {/* Modal: Barcode Label Sticker Preview & Print */}
-      {barcodeModalItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl text-center">
-            <h3 className="text-base font-bold text-slate-900 mb-4 flex items-center justify-center gap-2">
-              <Barcode className="h-5 w-5 text-blue-600" />
-              <span>ستيكر باركود الصنف للمحل</span>
-            </h3>
-
-            {/* Printable Sticker Box */}
-            <div className="border border-slate-300 rounded-xl p-4 bg-white shadow-inner flex flex-col items-center justify-center">
-              <span className="text-xs font-black text-slate-900">{settings?.storeName}</span>
-              <span className="text-[11px] font-bold text-slate-700 mt-1 max-w-[220px] truncate">
-                {barcodeModalItem.name}
-              </span>
-              <div className="my-2">
-                <svg ref={barcodeSvgRef} className="max-w-full"></svg>
+      {/* MODAL: Edit Accessory */}
+      {editingAcc && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-xl rounded-3xl bg-white shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-xl bg-white/20 flex items-center justify-center">
+                  <Edit2 className="h-5 w-5 text-white" />
+                </div>
+                <h3 className="font-display text-lg font-bold text-white">تعديل الصنف</h3>
               </div>
-              <span className="text-base font-black text-blue-800 font-mono">
-                {barcodeModalItem.sellPriceRetail.toLocaleString()} {settings?.currency || 'ج.م'}
-              </span>
+              <button
+                onClick={() => setEditingAcc(null)}
+                className="p-2 rounded-xl bg-white/20 text-white hover:bg-white/30 transition cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
 
-            <div className="flex items-center justify-center gap-3 mt-5">
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2 text-xs font-bold text-white hover:bg-blue-700 shadow"
-              >
-                <Printer className="h-4 w-4" />
-                <span>طباعة الستيكر</span>
+            <form onSubmit={handleEditSave} className="p-6 space-y-5">
+              <ModalFields v={editingAcc} setV={setEditingAcc} isEdit={true} />
+              <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingAcc(null)}
+                  className="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white px-6 py-2.5 text-sm font-bold shadow-md transition cursor-pointer"
+                >
+                  تحديث وحفظ
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Barcode Label Preview & Print */}
+      {barcodeModalItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-xs rounded-3xl bg-white shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between bg-gradient-to-r from-slate-800 to-slate-900 px-5 py-4">
+              <div className="flex items-center gap-2">
+                <Barcode className="h-5 w-5 text-blue-400" />
+                <h3 className="font-display font-bold text-white text-sm">ستيكر باركود الصنف</h3>
+              </div>
+              <button onClick={() => setBarcodeModalItem(null)} className="text-white/60 hover:text-white cursor-pointer">
+                <X className="h-4 w-4" />
               </button>
-              <button
-                type="button"
-                onClick={() => setBarcodeModalItem(null)}
-                className="rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100"
-              >
-                إغلاق
-              </button>
+            </div>
+
+            <div className="p-5">
+              <div className="border-2 border-dashed border-slate-200 rounded-2xl p-4 bg-white flex flex-col items-center text-center">
+                <p className="text-sm font-black text-slate-900">{settings?.storeName || 'المحل'}</p>
+                <p className="text-xs font-bold text-slate-700 mt-1 max-w-[200px] line-clamp-2">{barcodeModalItem.name}</p>
+                <div className="my-3">
+                  <svg ref={barcodeSvgRef} className="max-w-full" />
+                </div>
+                <p className="text-lg font-black text-blue-700 font-mono">
+                  {barcodeModalItem.sellPriceRetail.toLocaleString()} {cur}
+                </p>
+              </div>
+
+              <div className="flex gap-3 mt-4">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-slate-900 text-white text-xs font-bold py-2.5 hover:bg-slate-800 transition cursor-pointer"
+                >
+                  <Printer className="h-4 w-4" />
+                  <span>طباعة</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBarcodeModalItem(null)}
+                  className="flex-1 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 py-2.5 hover:bg-slate-50 transition cursor-pointer"
+                >
+                  إغلاق
+                </button>
+              </div>
             </div>
           </div>
         </div>

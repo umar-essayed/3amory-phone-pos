@@ -16,6 +16,9 @@ import {
   FileText,
   Key,
   Calendar,
+  Edit2,
+  X,
+  Trash2,
 } from 'lucide-react';
 import { db } from '../db';
 import { triggerPrint } from '../services/printer';
@@ -31,6 +34,7 @@ export const MaintenanceView: React.FC<{ activeShiftId: string; cashierName: str
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showNewModal, setShowNewModal] = useState(false);
+  const [editingTicket, setEditingTicket] = useState<RepairTicket | null>(null);
   const [selectedTicketForDelivery, setSelectedTicketForDelivery] = useState<RepairTicket | null>(null);
 
   // Form State
@@ -145,6 +149,23 @@ export const MaintenanceView: React.FC<{ activeShiftId: string; cashierName: str
     setInitialInspection('');
     setEstimatedCost('');
     setWarrantyDays('14');
+  };
+
+  const handleEditTicketSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTicket) return;
+    await db.repairs.update(editingTicket.id, {
+      customerName: editingTicket.customerName,
+      customerPhone: editingTicket.customerPhone,
+      deviceModel: editingTicket.deviceModel,
+      problemDescription: editingTicket.problemDescription,
+      technicianName: editingTicket.technicianName,
+      estimatedCost: Number(editingTicket.estimatedCost),
+      warrantyDays: Number(editingTicket.warrantyDays),
+      accessoriesIncluded: editingTicket.accessoriesIncluded,
+      passcodeOrPattern: editingTicket.passcodeOrPattern,
+    });
+    setEditingTicket(null);
   };
 
   const filteredRepairs = repairs.filter((r) => {
@@ -350,6 +371,32 @@ export const MaintenanceView: React.FC<{ activeShiftId: string; cashierName: str
                         className="p-2 rounded-xl bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-600 transition cursor-pointer"
                       >
                         <Printer className="h-4 w-4" />
+                      </button>
+
+                      {/* Edit Ticket */}
+                      {r.status !== 'delivered' && (
+                        <button
+                          type="button"
+                          onClick={() => setEditingTicket({ ...r })}
+                          title="تعديل بيانات التذكرة"
+                          className="p-2 rounded-xl bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-slate-600 transition cursor-pointer"
+                        >
+                          <Edit2 className="h-4 w-4" />
+                        </button>
+                      )}
+
+                      {/* Delete */}
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (confirm(`حذف تذكرة الصيانة #${r.ticketNumber}؟`)) {
+                            await db.repairs.delete(r.id);
+                          }
+                        }}
+                        title="حذف التذكرة"
+                        className="p-2 rounded-xl bg-slate-100 hover:bg-red-50 hover:text-red-600 text-slate-400 transition cursor-pointer"
+                      >
+                        <Trash2 className="h-4 w-4" />
                       </button>
 
                       {r.status !== 'delivered' && (
@@ -582,6 +629,108 @@ export const MaintenanceView: React.FC<{ activeShiftId: string; cashierName: str
                   className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 text-xs font-bold shadow transition"
                 >
                   تأكيد التسليم وتحصيل الكاش في الدرج
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* MODAL: Edit Repair Ticket */}
+      {editingTicket && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-lg rounded-3xl bg-white shadow-2xl overflow-hidden my-4">
+            <div className="flex items-center justify-between bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <Edit2 className="h-5 w-5 text-white" />
+                <h3 className="font-display text-lg font-bold text-white">
+                  تعديل تذكرة #{editingTicket.ticketNumber}
+                </h3>
+              </div>
+              <button onClick={() => setEditingTicket(null)} className="text-white/70 hover:text-white cursor-pointer">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={handleEditTicketSave} className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">اسم العميل</label>
+                  <input
+                    type="text"
+                    value={editingTicket.customerName}
+                    onChange={(e) => setEditingTicket((p) => p ? { ...p, customerName: e.target.value } : null)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm font-bold focus:border-indigo-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">هاتف العميل</label>
+                  <input
+                    type="tel"
+                    value={editingTicket.customerPhone}
+                    onChange={(e) => setEditingTicket((p) => p ? { ...p, customerPhone: e.target.value } : null)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm font-mono focus:border-indigo-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">نوع/موديل الجهاز</label>
+                <input
+                  type="text"
+                  value={editingTicket.deviceModel}
+                  onChange={(e) => setEditingTicket((p) => p ? { ...p, deviceModel: e.target.value } : null)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm font-bold focus:border-indigo-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">وصف العطل</label>
+                <textarea
+                  value={editingTicket.problemDescription}
+                  onChange={(e) => setEditingTicket((p) => p ? { ...p, problemDescription: e.target.value } : null)}
+                  rows={2}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm focus:border-indigo-500 focus:outline-none resize-none"
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">الفني المسؤول</label>
+                  <input
+                    type="text"
+                    value={editingTicket.technicianName}
+                    onChange={(e) => setEditingTicket((p) => p ? { ...p, technicianName: e.target.value } : null)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm focus:border-indigo-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">التكلفة المتوقعة</label>
+                  <input
+                    type="number"
+                    value={editingTicket.estimatedCost}
+                    onChange={(e) => setEditingTicket((p) => p ? { ...p, estimatedCost: Number(e.target.value) } : null)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm font-mono focus:border-indigo-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">ضمان (أيام)</label>
+                  <input
+                    type="number"
+                    value={editingTicket.warrantyDays}
+                    onChange={(e) => setEditingTicket((p) => p ? { ...p, warrantyDays: Number(e.target.value) } : null)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm font-mono focus:border-indigo-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingTicket(null)}
+                  className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white py-2.5 text-sm font-bold shadow-sm transition cursor-pointer"
+                >
+                  حفظ التعديلات
                 </button>
               </div>
             </form>
