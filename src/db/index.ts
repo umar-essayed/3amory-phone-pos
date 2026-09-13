@@ -56,8 +56,8 @@ export const db = new MobilePosDatabase();
 // Default initial settings - 100% customizable by the user
 export const DEFAULT_SETTINGS: StoreSettings = {
   id: 1,
-  storeName: 'محل الهواتف الذكية',
-  storeNameEn: 'Smart Mobile Store',
+  storeName: '3amory phone',
+  storeNameEn: '3amory phone',
   phone1: '',
   phone2: '',
   whatsapp: '',
@@ -65,8 +65,8 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   taxNumber: '',
   commercialReg: '',
   logoUrl: '/logo-removebg-preview.png',
-  receiptHeader: 'أهلاً بكم - خدمة متميزة وضمان حقيقي',
-  receiptFooter: 'شكراً لتعاملكم معنا ونتشرف بزيارتكم دائماً',
+  receiptHeader: '3amory phone - أهلاً بكم - خدمة متميزة وضمان حقيقي',
+  receiptFooter: 'شكراً لتعاملكم مع 3amory phone ونتشرف بزيارتكم دائماً',
   receiptNotes: 'البضاعة المباعة ترد وتستبدل خلال 14 يوماً بالفاتورة وحالتها الأصلية.',
   usedPhoneLegalDisclaimer: 'يقر البائع بكامل أهليته المعتبرة قانوناً بأن الهاتف المذكور ملكه الخالص وليس متحصل من جريمة أو مشبوه، ويتحمل كامل المسؤولية القانونية.',
   maintenanceTerms: 'المحل غير مسؤول عن الأجهزة التي يمر على إصلاحها أكثر من 30 يوماً دون استلام.',
@@ -101,9 +101,18 @@ async function doInitializeDatabase() {
     const existingSettings = await db.settings.get(1);
     if (!existingSettings) {
       await db.settings.put({ ...DEFAULT_SETTINGS, id: 1 });
-    } else if (existingSettings.logoUrl === '/logo.jpeg' || !existingSettings.logoUrl) {
-      // Auto-update to clean transparent default logo
-      await db.settings.update(1, { logoUrl: '/logo-removebg-preview.png' });
+    } else {
+      const updates: Partial<StoreSettings> = {};
+      if (existingSettings.logoUrl === '/logo.jpeg' || !existingSettings.logoUrl) {
+        updates.logoUrl = '/logo-removebg-preview.png';
+      }
+      if (!existingSettings.storeName || existingSettings.storeName === 'محل الهواتف الذكية' || existingSettings.storeName.includes('البرنس')) {
+        updates.storeName = '3amory phone';
+        updates.storeNameEn = '3amory phone';
+      }
+      if (Object.keys(updates).length > 0) {
+        await db.settings.update(1, updates);
+      }
     }
 
     // Clean up any previously seeded mock items

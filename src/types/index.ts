@@ -113,7 +113,7 @@ export interface WalletTransaction {
   commission: number;
   networkFee: number;
   netProfit: number;
-  customerPhone: string;
+  customerPhone?: string;
   customerName?: string;
   shiftId: string;
   cashierName: string;

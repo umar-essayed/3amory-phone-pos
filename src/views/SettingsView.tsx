@@ -14,6 +14,7 @@ import {
   Cloud,
 } from 'lucide-react';
 import { db } from '../db';
+import { triggerPrint, kickCashDrawer } from '../services/printer';
 import { useModal } from '../context/ModalContext';
 import type { StoreSettings } from '../types';
 
@@ -410,6 +411,72 @@ export const SettingsView: React.FC = () => {
                   />
                   <span>طباعة رقم الـ IMEI على فاتورة الهاتف</span>
                 </label>
+              </div>
+            </div>
+
+            {/* Desktop Thermal Printer Engine Panel */}
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-slate-900 to-indigo-950 text-white flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Printer className="h-5 w-5 text-blue-400" />
+                  <h4 className="font-display font-bold text-sm text-white">
+                    محرك الطباعة الحرارية المباشر للديسكتوب (ESC/POS)
+                  </h4>
+                </div>
+                <p className="text-xs text-slate-300 mt-1">
+                  يدعم الطابعات الحرارية USB و الشبكة مع إرسال نبضة فتح درج الكاشير والقص التلقائي للورق.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const kicked = await kickCashDrawer();
+                    if (kicked) {
+                      showToast('تم إرسال نبضة فتح درج الكاشير بنجاح');
+                    } else {
+                      showToast('تم تشغيل محرك الدرج (جاهز مع نسخة الديسكتوب)');
+                    }
+                  }}
+                  className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs transition cursor-pointer"
+                >
+                  ⚡ فتح درج الكاشير
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerPrint({
+                      type: 'sale_receipt',
+                      invoice: {
+                        id: 'test_inv',
+                        invoiceNumber: 'TEST-0001',
+                        shiftId: 'shift_1',
+                        cashierName: 'كاشير تجريبي',
+                        customerName: 'عميل تجريبي',
+                        customerPhone: '01012345678',
+                        items: [
+                          { itemId: '1', type: 'accessory', name: 'شاحن سريع 20W', quantity: 1, unitPrice: 250, totalPrice: 250, costPrice: 150 },
+                          { itemId: '2', type: 'accessory', name: 'كابل شحن Type-C', quantity: 2, unitPrice: 50, totalPrice: 100, costPrice: 30 },
+                        ],
+                        subtotal: 350,
+                        discount: 0,
+                        tax: 0,
+                        total: 350,
+                        paidAmount: 350,
+                        remainingAmount: 0,
+                        paymentMethod: 'cash',
+                        totalProfit: 140,
+                        status: 'completed',
+                        createdAt: new Date().toISOString(),
+                      },
+                      settings: formData,
+                    });
+                  }}
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition cursor-pointer"
+                >
+                  🖨️ طباعة إيصال تجريبي
+                </button>
               </div>
             </div>
 

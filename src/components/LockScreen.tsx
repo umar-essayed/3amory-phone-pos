@@ -101,7 +101,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({ onLogin, logoUrl, storeN
   }, [selectedUser, pin]);
 
   const resolvedLogo = logoUrl || settings?.logoUrl || '/logo-removebg-preview.png';
-  const resolvedStoreName = storeName || settings?.storeName || 'محل الهواتف الذكية';
+  const resolvedStoreName = storeName || settings?.storeName || '3amory phone';
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 p-4 select-none font-sans">

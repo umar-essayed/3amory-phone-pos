@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   Wallet,
@@ -15,15 +15,16 @@ import {
   TrendingUp,
   Percent,
   History,
-  Building,
   Edit2,
   X,
   Trash2,
+  Zap,
+  Check,
 } from 'lucide-react';
 import { db } from '../db';
 import { triggerPrint } from '../services/printer';
 import { useModal } from '../context/ModalContext';
-import type { StoreWallet, WalletTransaction, StoreSettings } from '../types';
+import type { StoreWallet, WalletTransaction } from '../types';
 
 export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string }> = ({
   activeShiftId,
@@ -37,91 +38,103 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
     ) || [];
   const settings = useLiveQuery(() => db.settings.get(1));
 
-  // Active operation form state
-  const [txType, setTxType] = useState<'cash_out_to_customer' | 'cash_in_from_customer' | 'instapay_transfer' | 'internal_transfer'>('cash_out_to_customer');
+  // Quick Operation Form State
+  const [txType, setTxType] = useState<'cash_in_from_customer' | 'cash_out_to_customer' | 'instapay_transfer' | 'internal_transfer'>('cash_in_from_customer');
   const [selectedWalletId, setSelectedWalletId] = useState<string>('');
   const [targetWalletId, setTargetWalletId] = useState<string>('');
-  const [customerPhone, setCustomerPhone] = useState<string>('');
-  const [customerName, setCustomerName] = useState<string>('');
   const [amount, setAmount] = useState<string>('');
   const [commission, setCommission] = useState<string>('');
-  const [isAutoCommission, setIsAutoCommission] = useState<boolean>(true);
+  const [isCustomCommission, setIsCustomCommission] = useState<boolean>(false);
+  const [customerPhone, setCustomerPhone] = useState<string>('');
+  const [showOptionalFields, setShowOptionalFields] = useState<boolean>(false);
+  const [customerName, setCustomerName] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
-  const [successBanner, setSuccessBanner] = useState<string | null>(null);
 
-  // New Wallet Modal
+  // Modals
   const [showNewWalletModal, setShowNewWalletModal] = useState<boolean>(false);
   const [newWalletName, setNewWalletName] = useState('');
   const [newWalletType, setNewWalletType] = useState<StoreWallet['type']>('vodafone');
   const [newWalletAccount, setNewWalletAccount] = useState('');
   const [newWalletBalance, setNewWalletBalance] = useState('');
-
-  // Edit Wallet Modal
   const [editingWallet, setEditingWallet] = useState<StoreWallet | null>(null);
 
-  // Default select first wallet
-  React.useEffect(() => {
-    if (wallets.length > 0 && !selectedWalletId) {
+  const amountInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-select first wallet if none selected
+  useEffect(() => {
+    if (wallets.length > 0 && (!selectedWalletId || !wallets.find((w) => w.id === selectedWalletId))) {
       setSelectedWalletId(wallets[0].id);
     }
   }, [wallets, selectedWalletId]);
 
-  // Smart commission calculator standard for mobile shops in Egypt
-  const calculateCommission = (val: number, type: string) => {
-    if (!val || val <= 0) return 0;
-    if (type === 'internal_transfer') return 0;
-
-    // Egyptian Market Tiered Standard
+  // Fast Egyptian Market standard commission calculation
+  const calculateDefaultCommission = (val: number, type: string) => {
+    if (!val || val <= 0 || type === 'internal_transfer') return 0;
     if (val <= 100) return 3;
     if (val <= 200) return 5;
     if (val <= 500) return 7;
     if (val <= 1000) return 10;
-    if (val <= 2000) return 20;
-    if (val <= 3000) return 30;
-    if (val <= 5000) return 50;
-    // 1% above 5000
-    return Math.ceil(val * 0.01);
+    if (val <= 2000) return 15;
+    if (val <= 3000) return 20;
+    if (val <= 4000) return 25;
+    if (val <= 5000) return 30;
+    return Math.ceil(val * 0.007);
   };
 
-  const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setAmount(val);
-    if (isAutoCommission) {
-      const num = parseFloat(val) || 0;
-      const comm = calculateCommission(num, txType);
-      setCommission(comm.toString());
+  const handleAmountChange = (valStr: string) => {
+    setAmount(valStr);
+    const num = parseFloat(valStr) || 0;
+    if (!isCustomCommission) {
+      setCommission(calculateDefaultCommission(num, txType).toString());
     }
   };
 
-  const handleExecuteTransaction = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleTypeChange = (type: typeof txType) => {
+    setTxType(type);
+    const num = parseFloat(amount) || 0;
+    if (!isCustomCommission) {
+      setCommission(calculateDefaultCommission(num, type).toString());
+    }
+    amountInputRef.current?.focus();
+  };
+
+  const setQuickAmount = (val: number) => {
+    handleAmountChange(val.toString());
+    amountInputRef.current?.focus();
+  };
+
+  // Ultra-Fast Transaction Execution
+  const handleExecuteTransaction = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+
     const numAmount = parseFloat(amount);
     const numCommission = parseFloat(commission) || 0;
 
     if (!numAmount || numAmount <= 0) {
-      showAlert('يرجى كتابة مبلغ صحيح أكبر من الصفر.', 'مبلغ غير صحيح', 'warning');
+      showAlert('يرجى كتابة المبلغ المطلوب أولاً.', 'أدخل المبلغ', 'warning');
+      amountInputRef.current?.focus();
       return;
     }
 
-    const currentWallet = wallets.find((w) => w.id === selectedWalletId);
-    if (!currentWallet) {
-      showAlert('يرجى اختيار المحفظة لتنفيذ العملية.', 'تحديد محفظة', 'warning');
+    if (wallets.length === 0) {
+      showAlert('لا توجد محافظ مسجلة! يرجى إضافة محفظة أو خط أولاً من زر (+) بالأعلى.', 'لا توجد محافظ', 'warning');
+      setShowNewWalletModal(true);
       return;
     }
 
-    // Balance check for cash out
+    const currentWallet = wallets.find((w) => w.id === selectedWalletId) || wallets[0];
+
+    // Balance check for cash out / transfers
     if (
       (txType === 'cash_out_to_customer' || txType === 'instapay_transfer' || txType === 'internal_transfer') &&
       currentWallet.balance < numAmount
     ) {
       const proceed = await showConfirm(
-        `تنبيه: رصيد المحفظة الحالي (${currentWallet.balance.toLocaleString()} ج) أقل من المبلغ المطلوب تحويله (${numAmount.toLocaleString()} ج).\nهل ترغب في المتابعة على أية حال؟`,
-        'رصيد المحفظة غير كافٍ',
-        { confirmText: 'متابعة التحويل', cancelText: 'إلغاء العملية', danger: true }
+        `تنبيه: رصيد المحفظة الحالي (${currentWallet.balance.toLocaleString()} ج) أقل من المبلغ المطلوب (${numAmount.toLocaleString()} ج).\nهل تريد المتابعة على أية حال؟`,
+        'رصيد المحفظة أقل من المبلغ',
+        { confirmText: 'نعم، متابعة', cancelText: 'إلغاء', danger: true }
       );
-      if (!proceed) {
-        return;
-      }
+      if (!proceed) return;
     }
 
     const txId = `tx_${Date.now()}`;
@@ -134,30 +147,22 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
       commission: numCommission,
       networkFee: 0,
       netProfit: numCommission,
-      customerPhone: txType === 'internal_transfer' ? 'تحويل داخلي' : customerPhone,
-      customerName: customerName || undefined,
+      customerPhone: customerPhone.trim() || undefined,
+      customerName: customerName.trim() || undefined,
       shiftId: activeShiftId,
       cashierName,
-      notes: notes || undefined,
+      notes: notes.trim() || undefined,
       createdAt: new Date().toISOString(),
     };
 
-    // Update Wallet Balances in DB transaction
+    // DB Transaction
     await db.transaction('rw', [db.wallets, db.walletTransactions, db.shifts], async () => {
-      // 1. Add Transaction
       await db.walletTransactions.add(newTx);
 
-      // 2. Adjust Origin Wallet Balance
       if (txType === 'cash_out_to_customer' || txType === 'instapay_transfer') {
-        // Deduct from wallet
-        await db.wallets.update(currentWallet.id, {
-          balance: currentWallet.balance - numAmount,
-        });
+        await db.wallets.update(currentWallet.id, { balance: currentWallet.balance - numAmount });
       } else if (txType === 'cash_in_from_customer') {
-        // Add to wallet
-        await db.wallets.update(currentWallet.id, {
-          balance: currentWallet.balance + numAmount,
-        });
+        await db.wallets.update(currentWallet.id, { balance: currentWallet.balance + numAmount });
       } else if (txType === 'internal_transfer' && targetWalletId) {
         const targetWallet = await db.wallets.get(targetWalletId);
         if (targetWallet) {
@@ -166,46 +171,35 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
         }
       }
 
-      // 3. Update Shift stats
       const shift = await db.shifts.get(activeShiftId);
       if (shift) {
         if (txType === 'cash_out_to_customer' || txType === 'instapay_transfer') {
-          // Cash in drawer increases by amount + commission
           await db.shifts.update(activeShiftId, {
             closingCashSystem: shift.closingCashSystem + numAmount + numCommission,
             totalWalletIn: shift.totalWalletIn + numAmount + numCommission,
             totalCommissions: shift.totalCommissions + numCommission,
           });
         } else if (txType === 'cash_in_from_customer') {
-          // Cash in drawer decreases by (amount - commission)
-          const cashGivenOut = numAmount - numCommission;
           await db.shifts.update(activeShiftId, {
-            closingCashSystem: shift.closingCashSystem - cashGivenOut,
-            totalWalletOut: shift.totalWalletOut + cashGivenOut,
+            closingCashSystem: shift.closingCashSystem - (numAmount - numCommission),
+            totalWalletOut: shift.totalWalletOut + numAmount,
             totalCommissions: shift.totalCommissions + numCommission,
           });
         }
       }
     });
 
-    // Auto trigger receipt print if settings say so
-    if (settings && settings.autoPrintReceipt) {
-      triggerPrint({
-        type: 'wallet_receipt',
-        walletTx: newTx,
-        settings,
-      });
-    }
+    showToast(`⚡ تم تنفيذ العملية بنجاح! ربح عمولة: +${numCommission} ج`, 'success');
 
-    setSuccessBanner(`تمت العملية بنجاح! رقم الإيصال: ${txId.slice(-6)}`);
-    setTimeout(() => setSuccessBanner(null), 4000);
-
-    // Reset fields
+    // Reset for next transaction immediately
     setAmount('');
     setCommission('');
     setCustomerPhone('');
     setCustomerName('');
     setNotes('');
+    setIsCustomCommission(false);
+    setShowOptionalFields(false);
+    amountInputRef.current?.focus();
   };
 
   const handleCreateWallet = async (e: React.FormEvent) => {
@@ -215,7 +209,6 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
       return;
     }
 
-    const newId = `wlt_${Date.now()}`;
     const colors: Record<string, string> = {
       vodafone: '#e60000',
       instapay: '#800080',
@@ -227,10 +220,10 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
     };
 
     await db.wallets.add({
-      id: newId,
-      name: newWalletName,
+      id: `wlt_${Date.now()}`,
+      name: newWalletName.trim(),
       type: newWalletType,
-      phoneNumberOrAccount: newWalletAccount,
+      phoneNumberOrAccount: newWalletAccount.trim(),
       balance: parseFloat(newWalletBalance) || 0,
       color: colors[newWalletType] || '#2563eb',
       isActive: true,
@@ -241,69 +234,292 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
     setNewWalletName('');
     setNewWalletAccount('');
     setNewWalletBalance('');
+    showToast('تمت إضافة المحفظة بنجاح');
   };
 
-  // Quick stats calculation
   const totalWalletsBalance = wallets.reduce((acc, w) => acc + w.balance, 0);
   const todayTransactions = transactions.filter(
     (t) => new Date(t.createdAt).toDateString() === new Date().toDateString()
   );
   const todayCommissions = todayTransactions.reduce((acc, t) => acc + t.commission, 0);
-  const todayTotalVolume = todayTransactions.reduce((acc, t) => acc + t.amount, 0);
+  const cur = settings?.currency || 'ج.م';
+  const numAmount = parseFloat(amount) || 0;
+  const numComm = parseFloat(commission) || 0;
 
   return (
-    <div className="space-y-6 pb-12">
-      {/* Top Banner & Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {/* Stat 1 */}
-        <div className="bg-gradient-to-br from-red-600 to-red-700 text-white p-5 rounded-2xl shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs text-red-100 font-medium">إجمالي أرصدة المحافظ والخطوط</p>
-            <h3 className="text-2xl font-black mt-1 font-mono">{totalWalletsBalance.toLocaleString()} {settings?.currency || 'ج.م'}</h3>
-            <span className="text-[10px] text-red-200 mt-1 block">موزعة على {wallets.length} خطوط ومحافظ فعالة</span>
+    <div className="space-y-5 pb-12 font-sans">
+      {/* ═══════════════════════════════════════════════════════════════
+          ULTRA-FAST ACTION BOX: 3 STEPS (TYPE -> AMOUNT -> CONFIRM)
+      ═══════════════════════════════════════════════════════════════ */}
+      <div className="bg-white rounded-3xl shadow-md border-2 border-blue-500/30 p-5 sm:p-7 overflow-hidden relative">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 mb-5 border-b border-slate-100">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-2xl bg-gradient-to-tr from-red-600 to-rose-500 text-white flex items-center justify-center shadow-md">
+              <Zap className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="font-display text-lg sm:text-xl font-black text-slate-900 leading-tight">
+                عملية سريعة فودافون كاش وإنستاباي
+              </h2>
+              <p className="text-xs text-slate-500 font-bold">
+                حدد العملية ← المبلغ ← تنفيذ بلمسة واحدة
+              </p>
+            </div>
           </div>
-          <div className="h-12 w-12 rounded-xl bg-white/20 flex items-center justify-center">
-            <Wallet className="h-6 w-6 text-white" />
+
+          {/* Active Wallet Selector Pill */}
+          <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-2xl border border-slate-200">
+            <span className="text-[11px] font-bold text-slate-500 pr-2">المحفظة:</span>
+            <select
+              value={selectedWalletId}
+              onChange={(e) => setSelectedWalletId(e.target.value)}
+              className="bg-white font-bold text-xs text-slate-800 py-1.5 px-3 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-500 cursor-pointer shadow-xs"
+            >
+              {wallets.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name} (رصيد: {w.balance.toLocaleString()} ج)
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
-        {/* Stat 2 */}
-        <div className="bg-gradient-to-br from-emerald-600 to-teal-700 text-white p-5 rounded-2xl shadow-sm flex items-center justify-between">
+        <form onSubmit={handleExecuteTransaction} className="space-y-5">
+          {/* STEP 1: OPERATION TYPE (LARGE CLICKABLE TILES) */}
           <div>
-            <p className="text-xs text-emerald-100 font-medium">أرباح العمولات اليوم (صافي ربح)</p>
-            <h3 className="text-2xl font-black mt-1 font-mono">+{todayCommissions.toLocaleString()} {settings?.currency || 'ج.م'}</h3>
-            <span className="text-[10px] text-emerald-200 mt-1 block">من {todayTransactions.length} عملية تحويل وسحب</span>
-          </div>
-          <div className="h-12 w-12 rounded-xl bg-white/20 flex items-center justify-center">
-            <TrendingUp className="h-6 w-6 text-white" />
-          </div>
-        </div>
+            <label className="block text-xs font-bold text-slate-600 mb-2">
+              1. نوع العملية:
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <button
+                type="button"
+                onClick={() => handleTypeChange('cash_in_from_customer')}
+                className={`p-3.5 rounded-2xl font-bold text-xs flex flex-col items-center gap-1.5 transition active:scale-95 cursor-pointer border-2 ${
+                  txType === 'cash_in_from_customer'
+                    ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-600/20'
+                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-emerald-300'
+                }`}
+              >
+                <ArrowUpRight className="h-5 w-5" />
+                <span className="font-black text-sm">سحب من العميل</span>
+                <span className="text-[10px] opacity-80">العميل يحول ونعطيه كاش</span>
+              </button>
 
-        {/* Stat 3 */}
-        <div className="bg-gradient-to-br from-purple-700 to-indigo-800 text-white p-5 rounded-2xl shadow-sm flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => handleTypeChange('cash_out_to_customer')}
+                className={`p-3.5 rounded-2xl font-bold text-xs flex flex-col items-center gap-1.5 transition active:scale-95 cursor-pointer border-2 ${
+                  txType === 'cash_out_to_customer'
+                    ? 'bg-red-600 border-red-600 text-white shadow-lg shadow-red-600/20'
+                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-red-300'
+                }`}
+              >
+                <ArrowDownLeft className="h-5 w-5" />
+                <span className="font-black text-sm">تحويل للعميل</span>
+                <span className="text-[10px] opacity-80">المحل يحول ويستلم كاش</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleTypeChange('instapay_transfer')}
+                className={`p-3.5 rounded-2xl font-bold text-xs flex flex-col items-center gap-1.5 transition active:scale-95 cursor-pointer border-2 ${
+                  txType === 'instapay_transfer'
+                    ? 'bg-purple-700 border-purple-700 text-white shadow-lg shadow-purple-700/20'
+                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-purple-300'
+                }`}
+              >
+                <CreditCard className="h-5 w-5" />
+                <span className="font-black text-sm">إنستاباي (InstaPay)</span>
+                <span className="text-[10px] opacity-80">تحويل بنكي / عنوان دفع</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleTypeChange('internal_transfer')}
+                className={`p-3.5 rounded-2xl font-bold text-xs flex flex-col items-center gap-1.5 transition active:scale-95 cursor-pointer border-2 ${
+                  txType === 'internal_transfer'
+                    ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-600/20'
+                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-blue-300'
+                }`}
+              >
+                <RefreshCw className="h-5 w-5" />
+                <span className="font-black text-sm">بين المحافظ</span>
+                <span className="text-[10px] opacity-80">نقل رصيد بين خطوط المحل</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Internal Transfer Target Wallet Selector */}
+          {txType === 'internal_transfer' && (
+            <div className="bg-blue-50 p-4 rounded-2xl border border-blue-200">
+              <label className="block text-xs font-bold text-blue-900 mb-1.5">
+                المحفظة المحول إليها (المستلمة):
+              </label>
+              <select
+                value={targetWalletId}
+                onChange={(e) => setTargetWalletId(e.target.value)}
+                className="w-full bg-white font-bold text-sm text-slate-800 p-2.5 rounded-xl border border-blue-300 focus:outline-none"
+                required
+              >
+                <option value="">-- اختر محفظة الاستلام --</option>
+                {wallets
+                  .filter((w) => w.id !== selectedWalletId)
+                  .map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name} (الرصيد: {w.balance.toLocaleString()} ج)
+                    </option>
+                  ))}
+              </select>
+            </div>
+          )}
+
+          {/* STEP 2: AMOUNT & COMMISSION (LARGE CENTERED INPUT) */}
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+            {/* Amount Input */}
+            <div className="md:col-span-8 bg-slate-50 p-4 rounded-2xl border-2 border-slate-200 focus-within:border-blue-600 focus-within:bg-white transition">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-black text-slate-700">
+                  2. المبلغ المطلوب تحويله / سحبه:
+                </label>
+                {numAmount > 0 && (
+                  <span className="text-xs font-bold text-blue-600 font-mono">
+                    الصافي للعميل: {numAmount.toLocaleString()} ج
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  ref={amountInputRef}
+                  type="number"
+                  step="any"
+                  value={amount}
+                  onChange={(e) => handleAmountChange(e.target.value)}
+                  placeholder="0"
+                  autoFocus
+                  className="w-full bg-transparent text-3xl sm:text-4xl font-black font-mono text-slate-900 focus:outline-none tracking-tight"
+                />
+                <span className="text-lg font-black text-slate-400 shrink-0">ج.م</span>
+              </div>
+
+              {/* Quick Amount Chips */}
+              <div className="flex flex-wrap items-center gap-1.5 mt-3 pt-3 border-t border-slate-200/80">
+                {[50, 100, 200, 300, 500, 1000, 2000, 3000, 5000].map((val) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setQuickAmount(val)}
+                    className="px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-800 font-mono font-bold text-xs hover:border-blue-500 hover:text-blue-600 active:scale-95 transition cursor-pointer shadow-xs"
+                  >
+                    {val} ج
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Commission Box */}
+            <div className="md:col-span-4 bg-emerald-50/70 p-4 rounded-2xl border-2 border-emerald-200/80 flex flex-col justify-between h-full">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-black text-emerald-900 flex items-center gap-1">
+                  <Percent className="h-3.5 w-3.5 text-emerald-600" />
+                  <span>عمولة المحل (صافي ربح):</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsCustomCommission(!isCustomCommission)}
+                  className="text-[10px] font-bold text-emerald-700 underline cursor-pointer"
+                >
+                  {isCustomCommission ? 'تلقائي' : 'تعديل'}
+                </button>
+              </div>
+
+              <div className="flex items-baseline gap-1 my-1">
+                <input
+                  type="number"
+                  step="any"
+                  value={commission}
+                  onChange={(e) => {
+                    setIsCustomCommission(true);
+                    setCommission(e.target.value);
+                  }}
+                  className="w-24 bg-white border border-emerald-300 rounded-xl px-2.5 py-1 text-xl font-black font-mono text-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+                <span className="text-xs font-bold text-emerald-700">ج.م</span>
+              </div>
+
+              <div className="text-[11px] font-bold text-emerald-800 border-t border-emerald-200/60 pt-2 mt-1">
+                {txType === 'cash_in_from_customer' ? (
+                  <span>يدفع العميل بالمحل: <strong>{(numAmount - numComm).toLocaleString()} ج</strong> كاش</span>
+                ) : (
+                  <span>يستلم المحل من العميل: <strong>{(numAmount + numComm).toLocaleString()} ج</strong> كاش</span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Optional phone field toggle */}
           <div>
-            <p className="text-xs text-purple-100 font-medium">حجم تداول الكاش اليوم</p>
-            <h3 className="text-2xl font-black mt-1 font-mono">{todayTotalVolume.toLocaleString()} {settings?.currency || 'ج.م'}</h3>
-            <span className="text-[10px] text-purple-200 mt-1 block">إجمالي مبالغ التحويلات المنفذة</span>
+            {!showOptionalFields ? (
+              <button
+                type="button"
+                onClick={() => setShowOptionalFields(true)}
+                className="text-xs font-bold text-slate-500 hover:text-blue-600 transition flex items-center gap-1 cursor-pointer"
+              >
+                <span>+ تسجيل رقم هاتف العميل واسمه (اختياري)</span>
+              </button>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-slate-50 rounded-2xl border border-slate-200 animate-slide-down">
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">رقم هاتف العميل (اختياري)</label>
+                  <input
+                    type="tel"
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    placeholder="010xxxxxxxx"
+                    className="w-full bg-white rounded-xl border border-slate-300 p-2 text-sm font-mono focus:border-blue-600 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">اسم العميل (اختياري)</label>
+                  <input
+                    type="text"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    placeholder="اسم العميل..."
+                    className="w-full bg-white rounded-xl border border-slate-300 p-2 text-sm focus:border-blue-600 focus:outline-none"
+                  />
+                </div>
+              </div>
+            )}
           </div>
-          <div className="h-12 w-12 rounded-xl bg-white/20 flex items-center justify-center">
-            <DollarSign className="h-6 w-6 text-white" />
-          </div>
-        </div>
 
-        {/* Action Button: Add Wallet */}
-        <div className="bg-white border-2 border-dashed border-slate-300 rounded-2xl p-5 flex flex-col justify-center items-center text-center hover:border-blue-500 transition cursor-pointer group" onClick={() => setShowNewWalletModal(true)}>
-          <div className="h-10 w-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mb-2 group-hover:scale-110 transition">
-            <Plus className="h-5 w-5" />
-          </div>
-          <span className="font-bold text-sm text-slate-800">إضافة خط / محفظة جديدة</span>
-          <span className="text-xs text-slate-400">فودافون كاش، إنستاباي، بنك</span>
-        </div>
+          {/* STEP 3: LARGE ONE-CLICK EXECUTE BUTTON */}
+          <button
+            type="submit"
+            className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-600 hover:brightness-105 active:scale-[0.98] text-white font-display text-lg font-black shadow-xl shadow-emerald-600/25 transition cursor-pointer flex items-center justify-center gap-2"
+          >
+            <Zap className="h-6 w-6" />
+            <span>تأكيد وتنفيذ العملية فوراً (Enter)</span>
+          </button>
+        </form>
       </div>
 
-      {/* Store Wallets Scrollable Bar */}
-      <div className="space-y-2">
-        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">خطوط ومحافظ المحل المسجلة:</h3>
+      {/* ═══════════════════════════════════════════════════════════════
+          STORE WALLETS OVERVIEW & MANAGEMENT CARDS
+      ═══════════════════════════════════════════════════════════════ */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-display text-sm font-bold text-slate-800">
+            خطوط ومحافظ المحل ({wallets.length}):
+          </h3>
+          <button
+            onClick={() => setShowNewWalletModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs active:scale-95 transition cursor-pointer"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>إضافة خط / محفظة جديدة</span>
+          </button>
+        </div>
+
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {wallets.map((w) => {
             const isSelected = selectedWalletId === w.id;
@@ -313,16 +529,13 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
                 onClick={() => setSelectedWalletId(w.id)}
                 className={`p-4 rounded-2xl border-2 transition cursor-pointer relative overflow-hidden group ${
                   isSelected
-                    ? 'border-blue-600 bg-blue-50/50 shadow-md ring-2 ring-blue-600/20'
+                    ? 'border-blue-600 bg-blue-50/60 shadow-md ring-2 ring-blue-600/20'
                     : 'border-slate-200 bg-white hover:border-slate-300'
                 }`}
               >
-                <div
-                  className="absolute top-0 right-0 left-0 h-1.5"
-                  style={{ backgroundColor: w.color }}
-                />
+                <div className="absolute top-0 right-0 left-0 h-1.5" style={{ backgroundColor: w.color }} />
                 <div className="flex items-center justify-between mb-1 mt-1">
-                  <span className="text-xs font-bold text-slate-800 truncate">{w.name}</span>
+                  <span className="text-xs font-black text-slate-800 truncate">{w.name}</span>
                   {w.type === 'instapay' ? (
                     <CreditCard className="h-4 w-4 text-purple-600 shrink-0" />
                   ) : (
@@ -333,15 +546,20 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
                 <div className="mt-3 flex items-baseline justify-between border-t border-slate-100 pt-2">
                   <span className="text-[10px] text-slate-400">الرصيد:</span>
                   <span className="text-sm font-black font-mono text-slate-900">
-                    {w.balance.toLocaleString()} {settings?.currency || 'ج'}
+                    {w.balance.toLocaleString()} {cur}
                   </span>
                 </div>
-                {/* Edit/Delete mini icons */}
-                <div className="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition">
+
+                {/* Edit & Delete Mini Buttons */}
+                <div className="flex items-center gap-1 mt-2 opacity-80 group-hover:opacity-100 transition">
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); setEditingWallet({ ...w }); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingWallet({ ...w });
+                    }}
                     className="p-1 rounded-lg bg-blue-100 text-blue-600 hover:bg-blue-200 cursor-pointer"
+                    title="تعديل"
                   >
                     <Edit2 className="h-3 w-3" />
                   </button>
@@ -350,9 +568,9 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
                     onClick={async (e) => {
                       e.stopPropagation();
                       const confirmed = await showConfirm(
-                        `هل أنت متأكد من تعطيل/حذف المحفظة "${w.name}"؟`,
+                        `هل أنت متأكد من حذف/تعطيل المحفظة "${w.name}"؟`,
                         'تعطيل المحفظة',
-                        { confirmText: 'نعم، تعطيل', cancelText: 'إلغاء', danger: true }
+                        { confirmText: 'تعطيل', cancelText: 'إلغاء', danger: true }
                       );
                       if (confirmed) {
                         await db.wallets.update(w.id, { isActive: false });
@@ -360,6 +578,7 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
                       }
                     }}
                     className="p-1 rounded-lg bg-red-100 text-red-500 hover:bg-red-200 cursor-pointer"
+                    title="حذف"
                   >
                     <Trash2 className="h-3 w-3" />
                   </button>
@@ -370,355 +589,129 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
         </div>
       </div>
 
-      {successBanner && (
-        <div className="flex items-center gap-3 rounded-xl bg-emerald-500 text-white p-4 font-bold shadow-md animate-bounce">
-          <CheckCircle2 className="h-5 w-5" />
-          <span>{successBanner}</span>
-        </div>
-      )}
-
-      {/* Main Fast Transaction Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left/Main: Quick Operation Box (7 cols) */}
-        <div className="lg:col-span-7 bg-white rounded-2xl shadow-xs border border-slate-200 p-6">
-          <h2 className="text-lg font-black text-slate-900 mb-4 flex items-center gap-2">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600 text-white text-xs">
-              ⚡
-            </span>
-            <span>تنفيذ عملية سريعة (تحويل / سحب / إيداع)</span>
-          </h2>
-
-          {/* Operation Tabs */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-6">
-            <button
-              type="button"
-              onClick={() => setTxType('cash_out_to_customer')}
-              className={`p-3 rounded-xl font-bold text-xs flex flex-col items-center gap-1.5 transition ${
-                txType === 'cash_out_to_customer'
-                  ? 'bg-red-600 text-white shadow-md'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-              }`}
-            >
-              <ArrowDownLeft className="h-5 w-5" />
-              <span>إيداع للعميل (المحل يحول)</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setTxType('cash_in_from_customer')}
-              className={`p-3 rounded-xl font-bold text-xs flex flex-col items-center gap-1.5 transition ${
-                txType === 'cash_in_from_customer'
-                  ? 'bg-emerald-600 text-white shadow-md'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-              }`}
-            >
-              <ArrowUpRight className="h-5 w-5" />
-              <span>سحب من العميل (العميل يحول)</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setTxType('instapay_transfer')}
-              className={`p-3 rounded-xl font-bold text-xs flex flex-col items-center gap-1.5 transition ${
-                txType === 'instapay_transfer'
-                  ? 'bg-purple-700 text-white shadow-md'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-              }`}
-            >
-              <CreditCard className="h-5 w-5" />
-              <span>تحويل إنستاباي بنكي</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setTxType('internal_transfer')}
-              className={`p-3 rounded-xl font-bold text-xs flex flex-col items-center gap-1.5 transition ${
-                txType === 'internal_transfer'
-                  ? 'bg-indigo-600 text-white shadow-md'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-              }`}
-            >
-              <RefreshCw className="h-5 w-5" />
-              <span>تحويل بين المحافظ</span>
-            </button>
+      {/* ═══════════════════════════════════════════════════════════════
+          RECENT TRANSACTIONS LOG
+      ═══════════════════════════════════════════════════════════════ */}
+      <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <History className="h-4 w-4 text-blue-600" />
+            <h3 className="font-display font-bold text-sm text-slate-800">
+              سجل التحويلات والعمليات الأخيرة ({transactions.length})
+            </h3>
           </div>
-
-          {/* Form */}
-          <form onSubmit={handleExecuteTransaction} className="space-y-4">
-            {/* Origin & Target Wallets */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  {txType === 'internal_transfer' ? 'التحويل من محفظة:' : 'المحفظة المستخدمة للعملية:'}
-                </label>
-                <select
-                  value={selectedWalletId}
-                  onChange={(e) => setSelectedWalletId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 p-3 text-sm font-bold bg-white focus:border-blue-600 focus:outline-none"
-                  required
-                >
-                  {wallets.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name} (رصيد: {w.balance.toLocaleString()} ج)
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {txType === 'internal_transfer' && (
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">التحويل إلى محفظة:</label>
-                  <select
-                    value={targetWalletId}
-                    onChange={(e) => setTargetWalletId(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 p-3 text-sm font-bold bg-white focus:border-blue-600 focus:outline-none"
-                    required
-                  >
-                    <option value="">-- اختر المحفظة المستلمة --</option>
-                    {wallets
-                      .filter((w) => w.id !== selectedWalletId)
-                      .map((w) => (
-                        <option key={w.id} value={w.id}>
-                          {w.name} (رصيد: {w.balance.toLocaleString()} ج)
-                        </option>
-                      ))}
-                  </select>
-                </div>
-              )}
-
-              {txType !== 'internal_transfer' && (
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    {txType === 'instapay_transfer'
-                      ? 'عنوان إنستاباي (IPA) أو رقم هاتف العميل:'
-                      : 'رقم هاتف العميل (المحفظة):'}
-                  </label>
-                  <input
-                    type="text"
-                    value={customerPhone}
-                    onChange={(e) => setCustomerPhone(e.target.value)}
-                    placeholder={txType === 'instapay_transfer' ? 'user@instapay أو 010...' : '010XXXXXXXX'}
-                    className="w-full rounded-xl border border-slate-300 p-3 text-sm font-mono focus:border-blue-600 focus:outline-none"
-                    required
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Amount and Commission */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  المبلغ المطلوب تحويله / سحبه ({settings?.currency || 'ج.م'})
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    step="any"
-                    value={amount}
-                    onChange={handleAmountChange}
-                    placeholder="0.00"
-                    className="w-full rounded-xl border-2 border-slate-300 p-3 text-lg font-black font-mono text-blue-700 focus:border-blue-600 focus:outline-none"
-                    required
-                  />
-                  <span className="absolute left-3 top-3.5 text-xs font-bold text-slate-400">
-                    {settings?.currency || 'ج.م'}
-                  </span>
-                </div>
-              </div>
-
-              {txType !== 'internal_transfer' && (
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-bold text-slate-700">
-                      عمولة المحل (ربح الخدمة)
-                    </label>
-                    <label className="flex items-center gap-1 text-[11px] text-blue-600 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={isAutoCommission}
-                        onChange={(e) => setIsAutoCommission(e.target.checked)}
-                        className="rounded"
-                      />
-                      <span>حساب تلقائي ذكي</span>
-                    </label>
-                  </div>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      step="any"
-                      value={commission}
-                      onChange={(e) => {
-                        setCommission(e.target.value);
-                        setIsAutoCommission(false);
-                      }}
-                      placeholder="0.00"
-                      className="w-full rounded-xl border-2 border-emerald-300 bg-emerald-50/40 p-3 text-lg font-black font-mono text-emerald-800 focus:border-emerald-600 focus:outline-none"
-                    />
-                    <span className="absolute left-3 top-3.5 text-xs font-bold text-emerald-700">
-                      {settings?.currency || 'ج.م'}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Operation Live Calculation Summary Banner */}
-            {amount && parseFloat(amount) > 0 && txType !== 'internal_transfer' && (
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-2">
-                <div className="flex justify-between font-bold">
-                  <span className="text-slate-600">
-                    {txType === 'cash_out_to_customer' || txType === 'instapay_transfer'
-                      ? 'الكاش المطلوب استلامه من العميل في الدرج:'
-                      : 'الكاش المطلوب تسليمه للعميل يداً بيد:'}
-                  </span>
-                  <span className="text-base font-black text-slate-900 font-mono">
-                    {txType === 'cash_out_to_customer' || txType === 'instapay_transfer'
-                      ? (parseFloat(amount) + (parseFloat(commission) || 0)).toLocaleString()
-                      : (parseFloat(amount) - (parseFloat(commission) || 0)).toLocaleString()}{' '}
-                    {settings?.currency || 'ج.م'}
-                  </span>
-                </div>
-                <div className="flex justify-between text-slate-500">
-                  <span>صافي ربح المحل المسجل من العملية:</span>
-                  <span className="font-bold text-emerald-600 font-mono">
-                    +{(parseFloat(commission) || 0).toLocaleString()} {settings?.currency || 'ج.م'}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {/* Optional Customer Name & Notes */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <input
-                type="text"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="اسم العميل (اختياري)"
-                className="w-full rounded-xl border border-slate-200 p-2.5 text-xs focus:border-blue-600 focus:outline-none"
-              />
-              <input
-                type="text"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="ملاحظات إضافية (اختياري)"
-                className="w-full rounded-xl border border-slate-200 p-2.5 text-xs focus:border-blue-600 focus:outline-none"
-              />
-            </div>
-
-            {/* Submit Button */}
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white font-black text-base py-4 shadow-lg transition active:scale-[0.99] cursor-pointer flex items-center justify-center gap-2"
-            >
-              <CheckCircle2 className="h-5 w-5" />
-              <span>تأكيد وتسجيل العملية والطباعة الفورية</span>
-            </button>
-          </form>
+          <div className="flex items-center gap-3 text-xs font-bold">
+            <span className="text-slate-500">
+              أرباح اليوم: <strong className="text-emerald-600 font-mono">+{todayCommissions.toLocaleString()} {cur}</strong>
+            </span>
+            <span className="text-slate-300">|</span>
+            <span className="text-slate-500">
+              إجمالي أرصدة الخطوط: <strong className="text-slate-900 font-mono">{totalWalletsBalance.toLocaleString()} {cur}</strong>
+            </span>
+          </div>
         </div>
 
-        {/* Right: Today's Recent Transactions (5 cols) */}
-        <div className="lg:col-span-5 bg-white rounded-2xl shadow-xs border border-slate-200 p-6 flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm">
-                <History className="h-4 w-4 text-blue-600" />
-                <span>سجل العمليات الأخيرة ({transactions.length})</span>
-              </h3>
-            </div>
-
-            <div className="space-y-2.5 max-h-[440px] overflow-y-auto pr-1">
+        <div className="overflow-x-auto">
+          <table className="w-full text-right text-xs">
+            <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
+              <tr>
+                <th className="p-3">نوع العملية</th>
+                <th className="p-3">المحفظة / الخط</th>
+                <th className="p-3">المبلغ</th>
+                <th className="p-3">العمولة (الربح)</th>
+                <th className="p-3">العميل / الهاتف</th>
+                <th className="p-3">الوقت والتاريخ</th>
+                <th className="p-3 text-center">طباعة إيصال</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
               {transactions.length === 0 ? (
-                <div className="text-center py-12 text-slate-400 text-xs">
-                  لا توجد عمليات تحويل مسجلة بعد.
-                </div>
+                <tr>
+                  <td colSpan={7} className="p-8 text-center text-slate-400 font-semibold">
+                    لا توجد عمليات تحويل مسجلة حتى الآن.
+                  </td>
+                </tr>
               ) : (
-                transactions.map((tx) => (
-                  <div
-                    key={tx.id}
-                    className="p-3 rounded-xl border border-slate-100 bg-slate-50/70 hover:bg-slate-100 transition flex items-center justify-between text-xs"
-                  >
-                    <div>
-                      <div className="flex items-center gap-1.5 font-bold text-slate-800">
-                        <span
-                          className={`inline-block h-2 w-2 rounded-full ${
-                            tx.type === 'cash_out_to_customer'
-                              ? 'bg-red-500'
-                              : tx.type === 'cash_in_from_customer'
-                              ? 'bg-emerald-500'
-                              : 'bg-purple-500'
-                          }`}
-                        />
-                        <span>{tx.walletName}</span>
-                        <span className="text-[10px] text-slate-400 font-normal">
-                          ({tx.customerPhone})
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-slate-400 mt-1">
-                        {new Date(tx.createdAt).toLocaleTimeString('ar-EG', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}{' '}
-                        | عمولة: <span className="font-bold text-emerald-600">+{tx.commission} ج</span>
-                      </div>
-                    </div>
-
-                    <div className="text-left flex items-center gap-2">
-                      <div>
-                        <div className="font-black font-mono text-sm text-slate-900">
-                          {tx.amount.toLocaleString()} ج
-                        </div>
-                        <div className="text-[10px] text-slate-400">
-                          {tx.type === 'cash_out_to_customer' && 'إيداع للعميل'}
-                          {tx.type === 'cash_in_from_customer' && 'سحب من العميل'}
-                          {tx.type === 'instapay_transfer' && 'إنستاباي'}
-                          {tx.type === 'internal_transfer' && 'داخلي'}
-                        </div>
-                      </div>
-
+                transactions.map((t) => (
+                  <tr key={t.id} className="hover:bg-slate-50">
+                    <td className="p-3">
+                      <span
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold ${
+                          t.type === 'cash_in_from_customer'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : t.type === 'cash_out_to_customer'
+                            ? 'bg-red-100 text-red-800'
+                            : t.type === 'instapay_transfer'
+                            ? 'bg-purple-100 text-purple-800'
+                            : 'bg-blue-100 text-blue-800'
+                        }`}
+                      >
+                        {t.type === 'cash_in_from_customer' && 'سحب من العميل'}
+                        {t.type === 'cash_out_to_customer' && 'تحويل للعميل'}
+                        {t.type === 'instapay_transfer' && 'إنستاباي'}
+                        {t.type === 'internal_transfer' && 'تحويل داخلي'}
+                      </span>
+                    </td>
+                    <td className="p-3 font-bold text-slate-800">{t.walletName}</td>
+                    <td className="p-3 font-mono font-black text-slate-900">
+                      {t.amount.toLocaleString()} {cur}
+                    </td>
+                    <td className="p-3 font-mono font-black text-emerald-600">
+                      +{t.commission.toLocaleString()} {cur}
+                    </td>
+                    <td className="p-3 text-slate-600">
+                      {t.customerPhone || t.customerName || '—'}
+                    </td>
+                    <td className="p-3 text-slate-500 font-mono">
+                      {new Date(t.createdAt).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' })}
+                    </td>
+                    <td className="p-3 text-center">
                       <button
                         type="button"
                         onClick={() => {
                           if (settings) {
                             triggerPrint({
                               type: 'wallet_receipt',
-                              walletTx: tx,
+                              walletTx: t,
                               settings,
                             });
                           }
                         }}
+                        className="p-1.5 rounded-lg bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-blue-600 transition cursor-pointer"
                         title="طباعة إيصال"
-                        className="p-2 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 transition cursor-pointer"
                       >
                         <Printer className="h-3.5 w-3.5" />
                       </button>
-                    </div>
-                  </div>
+                    </td>
+                  </tr>
                 ))
               )}
-            </div>
-          </div>
+            </tbody>
+          </table>
         </div>
       </div>
 
-      {/* Modal: Create New Wallet */}
+      {/* ═══════════════════════════════════════════════════════════════
+          MODAL: ADD NEW WALLET
+      ═══════════════════════════════════════════════════════════════ */}
       {showNewWalletModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-            <h3 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-2">
-              <Wallet className="h-5 w-5 text-blue-600" />
-              <span>إضافة خط أو محفظة جديدة للنظام</span>
-            </h3>
-
-            <form onSubmit={handleCreateWallet} className="space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md rounded-3xl bg-white shadow-2xl overflow-hidden animate-scale-in">
+            <div className="flex items-center justify-between bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4">
+              <h3 className="font-display text-base font-bold text-white">إضافة محفظة أو خط كاش جديد</h3>
+              <button onClick={() => setShowNewWalletModal(false)} className="text-white/80 hover:text-white cursor-pointer">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateWallet} className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">اسم الخط / المحفظة</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">اسم المحفظة / الخط *</label>
                 <input
                   type="text"
                   value={newWalletName}
                   onChange={(e) => setNewWalletName(e.target.value)}
-                  placeholder="مثال: فودافون كاش - خط المعادي"
-                  className="w-full rounded-xl border border-slate-300 p-2.5 text-xs focus:border-blue-600 focus:outline-none"
+                  placeholder="مثال: فودافون كاش - خط 1"
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-sm font-bold focus:border-blue-600 focus:outline-none"
                   required
                 />
               </div>
@@ -728,58 +721,53 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
                 <select
                   value={newWalletType}
                   onChange={(e) => setNewWalletType(e.target.value as any)}
-                  className="w-full rounded-xl border border-slate-300 p-2.5 text-xs bg-white focus:border-blue-600 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-sm font-bold bg-white focus:border-blue-600 focus:outline-none"
                 >
                   <option value="vodafone">فودافون كاش (Vodafone Cash)</option>
                   <option value="instapay">إنستاباي (InstaPay)</option>
                   <option value="orange">أورنج كاش (Orange Cash)</option>
                   <option value="etisalat">اتصالات كاش (Etisalat Cash)</option>
                   <option value="we">وي باي (WE Pay)</option>
-                  <option value="bank">حساب بنكي مباشر</option>
+                  <option value="bank">حساب بنكي</option>
                   <option value="other">أخرى</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  رقم الهاتف أو اسم الحساب
-                </label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">رقم الهاتف أو عنوان الحساب *</label>
                 <input
                   type="text"
                   value={newWalletAccount}
                   onChange={(e) => setNewWalletAccount(e.target.value)}
-                  placeholder="01012345678 أو store@instapay"
-                  className="w-full rounded-xl border border-slate-300 p-2.5 text-xs font-mono focus:border-blue-600 focus:outline-none"
+                  placeholder="010xxxxxxxx أو username@instapay"
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-sm font-mono focus:border-blue-600 focus:outline-none"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  الرصيد الافتتاحي الحالي في المحفظة ({settings?.currency || 'ج.م'})
-                </label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">الرصيد الافتتاحي الحالي (ج.م)</label>
                 <input
                   type="number"
                   step="any"
                   value={newWalletBalance}
                   onChange={(e) => setNewWalletBalance(e.target.value)}
-                  placeholder="0.00"
-                  className="w-full rounded-xl border border-slate-300 p-2.5 text-xs font-mono focus:border-blue-600 focus:outline-none"
-                  required
+                  placeholder="0"
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-sm font-mono font-bold focus:border-blue-600 focus:outline-none"
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowNewWalletModal(false)}
-                  className="rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                  className="flex-1 rounded-xl border border-slate-200 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
                 >
                   إلغاء
                 </button>
                 <button
                   type="submit"
-                  className="rounded-xl bg-blue-600 px-5 py-2 text-xs font-bold text-white hover:bg-blue-700 shadow"
+                  className="flex-1 rounded-xl bg-blue-600 hover:bg-blue-700 text-white py-2.5 text-xs font-bold shadow-md cursor-pointer"
                 >
                   حفظ المحفظة
                 </button>
@@ -789,16 +777,18 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
         </div>
       )}
 
-      {/* Edit Wallet Modal */}
+      {/* ═══════════════════════════════════════════════════════════════
+          MODAL: EDIT WALLET
+      ═══════════════════════════════════════════════════════════════ */}
       {editingWallet && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-3xl bg-white shadow-2xl overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md rounded-3xl bg-white shadow-2xl overflow-hidden animate-scale-in">
             <div className="flex items-center justify-between bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4">
               <div className="flex items-center gap-2">
                 <Edit2 className="h-5 w-5 text-white" />
-                <h3 className="font-display text-lg font-bold text-white">تعديل بيانات المحفظة</h3>
+                <h3 className="font-display text-base font-bold text-white">تعديل بيانات المحفظة</h3>
               </div>
-              <button onClick={() => setEditingWallet(null)} className="text-white/80 hover:text-white">
+              <button onClick={() => setEditingWallet(null)} className="text-white/80 hover:text-white cursor-pointer">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -811,6 +801,7 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
                   balance: Number(editingWallet.balance),
                 });
                 setEditingWallet(null);
+                showToast('تم تعديل المحفظة بنجاح');
               }}
               className="p-6 space-y-4"
             >
@@ -835,7 +826,7 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">الرصيد الحالي</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">الرصيد الحالي (ج.م)</label>
                 <input
                   type="number"
                   step="any"
@@ -849,13 +840,13 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
                 <button
                   type="button"
                   onClick={() => setEditingWallet(null)}
-                  className="flex-1 rounded-xl border border-slate-200 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                  className="flex-1 rounded-xl border border-slate-200 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
                 >
                   إلغاء
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 rounded-xl bg-blue-600 hover:bg-blue-700 text-white py-2.5 text-xs font-bold shadow-md"
+                  className="flex-1 rounded-xl bg-blue-600 hover:bg-blue-700 text-white py-2.5 text-xs font-bold shadow-md cursor-pointer"
                 >
                   حفظ التعديل
                 </button>

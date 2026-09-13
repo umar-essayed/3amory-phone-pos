@@ -66,10 +66,10 @@ export const Header: React.FC<HeaderProps> = ({
 
           <div>
             <h1 className="font-display text-base font-black text-slate-900 leading-tight">
-              {settings?.storeName || 'محل الهواتف الذكية'}
+              {settings?.storeName || '3amory phone'}
             </h1>
             <p className="text-[10px] text-slate-400 font-semibold hidden sm:block">
-              {settings?.phone1 ? `خدمة العملاء: ${settings.phone1}` : 'Mobile POS Pro'}
+              {settings?.phone1 ? `خدمة العملاء: ${settings.phone1}` : '3amory phone POS'}
             </p>
           </div>
         </div>
