@@ -1,0 +1,246 @@
+export type Role = 'owner' | 'manager' | 'cashier' | 'technician';
+
+export interface StoreSettings {
+  id: number;
+  storeName: string;
+  storeNameEn: string;
+  phone1: string;
+  phone2: string;
+  whatsapp: string;
+  address: string;
+  taxNumber: string;
+  commercialReg: string;
+  logoUrl: string;
+  receiptHeader: string;
+  receiptFooter: string;
+  receiptNotes: string;
+  usedPhoneLegalDisclaimer: string;
+  maintenanceTerms: string;
+  currency: string;
+  paperSize: '80mm' | '58mm';
+  autoPrintReceipt: boolean;
+  showImeiOnReceipt: boolean;
+  firebaseConfig: {
+    apiKey: string;
+    authDomain: string;
+    projectId: string;
+    storageBucket: string;
+    messagingSenderId: string;
+    appId: string;
+  };
+  enableCloudSync: boolean;
+  lastSyncTime: string | null;
+}
+
+export interface User {
+  id: string;
+  name: string;
+  username: string;
+  pin: string;
+  role: Role;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface Phone {
+  id: string;
+  name: string;
+  brand: string;
+  model: string;
+  condition: 'new' | 'used';
+  imei1: string;
+  imei2?: string;
+  storage: string;
+  color: string;
+  batteryHealth?: number;
+  physicalCondition?: string;
+  hasBox: boolean;
+  hasOriginalAccessories: boolean;
+  costPrice: number;
+  minSellPrice: number;
+  sellPrice: number;
+  status: 'available' | 'sold' | 'returned';
+  sellerInfo?: {
+    name: string;
+    nationalId: string;
+    phone: string;
+    nationalIdPhoto?: string;
+    notes?: string;
+  };
+  soldAt?: string;
+  soldInvoiceId?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface Accessory {
+  id: string;
+  name: string;
+  category: string;
+  barcode: string;
+  costPrice: number;
+  sellPriceRetail: number;
+  sellPriceWholesale: number;
+  stockQuantity: number;
+  minStockAlert: number;
+  location?: string;
+  createdAt: string;
+}
+
+export interface StoreWallet {
+  id: string;
+  name: string;
+  type: 'vodafone' | 'instapay' | 'orange' | 'etisalat' | 'we' | 'bank' | 'other';
+  phoneNumberOrAccount: string;
+  balance: number;
+  color: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface WalletTransaction {
+  id: string;
+  walletId: string;
+  walletName: string;
+  type:
+    | 'cash_out_to_customer' // إيداع للعميل: العميل يدفع كاش للمحل والمحل يحول لمحفظته
+    | 'cash_in_from_customer' // سحب من العميل: العميل يحول لمحفظة المحل والمحل يسلمه كاش
+    | 'instapay_transfer'     // تحويل إنستاباي
+    | 'internal_transfer'     // تحويل بين خطوط ومحافظ المحل
+    | 'balance_adjustment';   // تعديل رصيد
+  amount: number;
+  commission: number;
+  networkFee: number;
+  netProfit: number;
+  customerPhone: string;
+  customerName?: string;
+  shiftId: string;
+  cashierName: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface InvoiceItem {
+  itemId: string;
+  type: 'phone' | 'accessory' | 'repair' | 'service';
+  name: string;
+  imei?: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  costPrice: number;
+}
+
+export interface SaleInvoice {
+  id: string;
+  invoiceNumber: string;
+  shiftId: string;
+  cashierName: string;
+  customerName?: string;
+  customerPhone?: string;
+  items: InvoiceItem[];
+  subtotal: number;
+  discount: number;
+  tax: number;
+  total: number;
+  paidAmount: number;
+  remainingAmount: number;
+  paymentMethod: 'cash' | 'wallet' | 'instapay' | 'debt' | 'mixed';
+  walletId?: string;
+  totalProfit: number;
+  status: 'completed' | 'returned' | 'canceled';
+  createdAt: string;
+}
+
+export type RepairStatus =
+  | 'received'          // تم الاستلام
+  | 'inspecting'        // قيد الفحص
+  | 'waiting_approval'  // انتظار موافقة العميل
+  | 'in_progress'       // جاري الإصلاح
+  | 'repaired'          // تم الإصلاح
+  | 'delivered'         // تم التسليم للعميل
+  | 'rejected';         // تعذر الإصلاح / مرتجع
+
+export interface RepairTicket {
+  id: string;
+  ticketNumber: string;
+  customerName: string;
+  customerPhone: string;
+  deviceModel: string;
+  imeiOrSerial?: string;
+  color?: string;
+  passcodeOrPattern: string;
+  accessoriesIncluded: string;
+  problemDescription: string;
+  initialInspection: string;
+  technicianName: string;
+  technicianCommission: number;
+  estimatedCost: number;
+  finalCost: number;
+  sparePartsCost: number;
+  sparePartsUsed: string;
+  status: RepairStatus;
+  warrantyDays: number;
+  receivedAt: string;
+  deliveredAt?: string;
+  notes?: string;
+}
+
+export interface Shift {
+  id: string;
+  shiftNumber: number;
+  cashierId: string;
+  cashierName: string;
+  startTime: string;
+  endTime?: string;
+  status: 'open' | 'closed';
+  openingCash: number;
+  openingWallets: Record<string, number>;
+  closingCashSystem: number;
+  closingCashActual: number;
+  cashDifference: number; // actual - system
+  totalSalesCash: number;
+  totalWalletIn: number;
+  totalWalletOut: number;
+  totalCommissions: number;
+  totalExpenses: number;
+  notes?: string;
+}
+
+export interface Expense {
+  id: string;
+  title: string;
+  amount: number;
+  category: string;
+  shiftId: string;
+  recordedBy: string;
+  createdAt: string;
+}
+
+export interface Customer {
+  id: string;
+  name: string;
+  phone: string;
+  totalDebt: number;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface Supplier {
+  id: string;
+  name: string;
+  companyName?: string;
+  phone: string;
+  totalBalanceDue: number;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface SyncQueueItem {
+  id: string;
+  collection: string;
+  action: 'create' | 'update' | 'delete';
+  data: any;
+  timestamp: string;
+  synced: boolean;
+}
