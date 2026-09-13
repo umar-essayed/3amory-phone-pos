@@ -104,11 +104,17 @@ export const LockScreen: React.FC<LockScreenProps> = ({ onLogin, logoUrl, storeN
   const resolvedStoreName = storeName || settings?.storeName || '3amory phone';
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 p-4 select-none font-sans">
-      <div className="w-full max-w-2xl bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/20 p-6 sm:p-8 flex flex-col items-center">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950 p-4 select-none font-sans overflow-hidden">
+      {/* Ambient background glow orbs */}
+      <div className="absolute top-1/4 -right-20 w-[500px] h-[500px] bg-blue-600/15 rounded-full blur-[140px] pointer-events-none" />
+      <div className="absolute bottom-1/4 -left-20 w-[500px] h-[500px] bg-indigo-600/15 rounded-full blur-[140px] pointer-events-none" />
+      <div className="absolute inset-0 bg-[radial-gradient(#334155_1px,transparent_1px)] [background-size:32px_32px] opacity-20 pointer-events-none" />
+
+      {/* Main Glassmorphic Card */}
+      <div className="relative z-10 w-full max-w-2xl bg-white/95 backdrop-blur-2xl rounded-[32px] shadow-[0_25px_70px_rgba(0,0,0,0.6)] border border-white/40 p-6 sm:p-8 flex flex-col items-center">
         {/* Header Branding */}
         <div className="flex flex-col items-center text-center mb-6">
-          <div className="h-20 w-20 rounded-2xl bg-slate-900/5 p-2 flex items-center justify-center shadow-inner mb-3">
+          <div className="h-20 w-20 rounded-2xl bg-slate-100/80 p-2 flex items-center justify-center shadow-inner mb-3 border border-slate-200">
             <img
               src={resolvedLogo}
               alt="Logo"
@@ -118,7 +124,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({ onLogin, logoUrl, storeN
               }}
             />
           </div>
-          <h1 className="font-display text-2xl sm:text-3xl font-black text-slate-900">
+          <h1 className="font-display text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
             {resolvedStoreName}
           </h1>
           <p className="text-xs text-slate-500 font-bold mt-1">

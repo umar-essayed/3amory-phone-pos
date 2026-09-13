@@ -228,8 +228,8 @@ export const AnalyticsView: React.FC = () => {
       {/* Visual Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Main Bar Chart: Daily Sales & Profit */}
-        <div className="lg:col-span-8 bg-white p-6 rounded-2xl shadow-xs border border-slate-200">
-          <div className="flex items-center justify-between mb-6">
+        <div className="lg:col-span-8 bg-white p-6 rounded-2xl shadow-xs border border-slate-200 overflow-hidden">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-6">
             <div className="flex items-center gap-2">
               <BarChart3 className="h-5 w-5 text-blue-600" />
               <h3 className="font-display font-bold text-slate-900 text-sm">
@@ -248,44 +248,54 @@ export const AnalyticsView: React.FC = () => {
             </div>
           </div>
 
-          {/* SVG Bar Chart */}
-          <div className="h-64 flex items-end justify-between gap-3 pt-6 pb-2 border-b border-slate-100">
-            {daysData.map((d, i) => {
-              const revHeight = maxDayVal > 0 ? (d.revenue / maxDayVal) * 100 : 0;
-              const profitHeight = maxDayVal > 0 ? (d.profit / maxDayVal) * 100 : 0;
-              return (
-                <div key={i} className="flex-1 flex flex-col items-center h-full justify-end group">
-                  {/* Tooltip on hover */}
-                  <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 mb-2 bg-slate-900 text-white text-[10px] p-2 rounded-xl shadow-lg pointer-events-none whitespace-nowrap z-10">
-                    <p className="font-bold">{d.label} ({d.date})</p>
-                    <p className="text-blue-300">مبيعات: {d.revenue.toLocaleString()} {cur}</p>
-                    <p className="text-emerald-300">أرباح: +{d.profit.toLocaleString()} {cur}</p>
-                  </div>
+          {/* Chart Frame with Gridlines */}
+          <div className="relative w-full pt-6 pb-2">
+            {/* Background dashed grid lines */}
+            <div className="absolute inset-x-0 top-6 bottom-8 flex flex-col justify-between pointer-events-none opacity-40">
+              <div className="border-b border-dashed border-slate-200 w-full" />
+              <div className="border-b border-dashed border-slate-200 w-full" />
+              <div className="border-b border-slate-300 w-full" />
+            </div>
 
-                  {/* Dual Bars */}
-                  <div className="w-full flex items-end justify-center gap-1.5 h-44">
-                    <div
-                      style={{ height: `${Math.max(revHeight, 6)}%` }}
-                      className="w-4 sm:w-6 bg-gradient-to-t from-blue-700 to-blue-500 rounded-t-lg transition-all duration-300 hover:brightness-110 shadow-xs"
-                    />
-                    <div
-                      style={{ height: `${Math.max(profitHeight, 6)}%` }}
-                      className="w-4 sm:w-6 bg-gradient-to-t from-emerald-600 to-emerald-400 rounded-t-lg transition-all duration-300 hover:brightness-110 shadow-xs"
-                    />
-                  </div>
+            {/* Bars Container */}
+            <div className="relative h-56 flex items-end justify-around gap-2 px-2 z-0">
+              {daysData.map((d, i) => {
+                const revHeight = maxDayVal > 0 ? (d.revenue / maxDayVal) * 100 : 0;
+                const profitHeight = maxDayVal > 0 ? (d.profit / maxDayVal) * 100 : 0;
+                return (
+                  <div key={i} className="flex-1 flex flex-col items-center justify-end h-full relative group">
+                    {/* Floating Tooltip */}
+                    <div className="absolute -top-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none z-30 bg-slate-900 text-white text-[10px] py-1.5 px-2.5 rounded-xl shadow-xl whitespace-nowrap">
+                      <p className="font-bold text-slate-200">{d.label} · {d.date.slice(5)}</p>
+                      <p className="text-blue-300 font-mono">مبيعات: {d.revenue.toLocaleString()} {cur}</p>
+                      <p className="text-emerald-300 font-mono">أرباح: +{d.profit.toLocaleString()} {cur}</p>
+                    </div>
 
-                  {/* Day Label */}
-                  <span className="text-[11px] font-bold text-slate-500 mt-3 group-hover:text-blue-600 transition">
-                    {d.label}
-                  </span>
-                </div>
-              );
-            })}
+                    {/* Dual Bars */}
+                    <div className="w-full max-w-[48px] flex items-end justify-center gap-1 h-44 pb-1">
+                      <div
+                        style={{ height: `${Math.max(revHeight, 4)}%` }}
+                        className="flex-1 max-w-[20px] bg-gradient-to-t from-blue-700 via-blue-600 to-blue-500 rounded-t-md transition-all duration-300 group-hover:brightness-110 shadow-xs"
+                      />
+                      <div
+                        style={{ height: `${Math.max(profitHeight, 4)}%` }}
+                        className="flex-1 max-w-[20px] bg-gradient-to-t from-emerald-600 via-emerald-500 to-teal-400 rounded-t-md transition-all duration-300 group-hover:brightness-110 shadow-xs"
+                      />
+                    </div>
+
+                    {/* Day Label */}
+                    <span className="text-[11px] font-bold text-slate-500 mt-2 block truncate group-hover:text-blue-600 transition">
+                      {d.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
-          <div className="flex items-center justify-between text-[11px] text-slate-400 pt-3">
-            <span>متوسط قيمة الفاتورة: <strong>{avgTicket.toLocaleString()} {cur}</strong></span>
-            <span>عدد فواتير الفترة: <strong>{filteredInvoices.length} فاتورة</strong></span>
+          <div className="flex items-center justify-between text-[11px] text-slate-400 pt-3 border-t border-slate-100 mt-2">
+            <span>متوسط قيمة الفاتورة: <strong className="text-slate-700">{avgTicket.toLocaleString()} {cur}</strong></span>
+            <span>عدد فواتير الفترة: <strong className="text-slate-700">{filteredInvoices.length} فاتورة</strong></span>
           </div>
         </div>
 
