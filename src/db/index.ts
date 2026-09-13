@@ -85,49 +85,62 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   lastSyncTime: null,
 };
 
-// Seed database with initial data if empty
-export async function initializeDatabase() {
-  const settingsCount = await db.settings.count();
-  if (settingsCount === 0) {
-    await db.settings.add(DEFAULT_SETTINGS);
-  }
+let initPromise: Promise<void> | null = null;
 
-  const usersCount = await db.users.count();
-  if (usersCount === 0) {
-    await db.users.bulkAdd([
-      {
-        id: 'usr_admin',
-        name: 'المدير العام (المالك)',
-        username: 'admin',
-        pin: '1234',
-        role: 'owner',
-        isActive: true,
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: 'usr_cashier',
-        name: 'كاشير المحل',
-        username: 'cashier',
-        pin: '0000',
-        role: 'cashier',
-        isActive: true,
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: 'usr_tech',
-        name: 'فني الصيانة',
-        username: 'tech',
-        pin: '1111',
-        role: 'technician',
-        isActive: true,
-        createdAt: new Date().toISOString(),
-      },
-    ]);
+// Seed database with initial data safely (idempotent with bulkPut)
+export function initializeDatabase(): Promise<void> {
+  if (!initPromise) {
+    initPromise = doInitializeDatabase();
   }
+  return initPromise;
+}
 
-  const walletsCount = await db.wallets.count();
-  if (walletsCount === 0) {
-    await db.wallets.bulkAdd([
+async function doInitializeDatabase() {
+  try {
+    const existingSettings = await db.settings.get(1);
+    if (!existingSettings) {
+      await db.settings.put({ ...DEFAULT_SETTINGS, id: 1 });
+    }
+
+    const usersCount = await db.users.count();
+    if (usersCount === 0) {
+      await db.users.bulkPut([
+        {
+          id: 'usr_admin',
+          name: 'المدير العام (المالك)',
+          displayName: 'المدير العام (المالك)',
+          username: 'admin',
+          pin: '1234',
+          role: 'owner',
+          isActive: true,
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: 'usr_cashier',
+          name: 'كاشير المحل',
+          displayName: 'كاشير المحل',
+          username: 'cashier',
+          pin: '0000',
+          role: 'cashier',
+          isActive: true,
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: 'usr_tech',
+          name: 'فني الصيانة',
+          displayName: 'فني الصيانة',
+          username: 'tech',
+          pin: '1111',
+          role: 'technician',
+          isActive: true,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+    }
+
+    const walletsCount = await db.wallets.count();
+    if (walletsCount === 0) {
+      await db.wallets.bulkPut([
       {
         id: 'wlt_vodafone_1',
         name: 'فودافون كاش - خط المحل 1',
@@ -183,7 +196,7 @@ export async function initializeDatabase() {
 
   const phonesCount = await db.phones.count();
   if (phonesCount === 0) {
-    await db.phones.bulkAdd([
+    await db.phones.bulkPut([
       {
         id: 'ph_1',
         name: 'iPhone 15 Pro Max',
@@ -249,7 +262,7 @@ export async function initializeDatabase() {
 
   const accCount = await db.accessories.count();
   if (accCount === 0) {
-    await db.accessories.bulkAdd([
+    await db.accessories.bulkPut([
       {
         id: 'acc_1',
         name: 'شاحن أصلي Apple 20W USB-C',
@@ -308,30 +321,36 @@ export async function initializeDatabase() {
   // Check active shift or create initial shift
   const openShift = await db.shifts.where('status').equals('open').first();
   if (!openShift) {
-    await db.shifts.add({
-      id: 'shift_1',
-      shiftNumber: 1,
-      cashierId: 'usr_admin',
-      cashierName: 'المدير العام (المالك)',
-      startTime: new Date().toISOString(),
-      status: 'open',
-      openingCash: 2500,
-      openingWallets: {
-        wlt_vodafone_1: 5000,
-        wlt_vodafone_2: 3200,
-        wlt_instapay: 12500,
-        wlt_orange: 2000,
-        wlt_etisalat: 2500,
-      },
-      closingCashSystem: 2500,
-      closingCashActual: 0,
-      cashDifference: 0,
-      totalSalesCash: 0,
-      totalWalletIn: 0,
-      totalWalletOut: 0,
-      totalCommissions: 0,
-      totalExpenses: 0,
-      notes: 'وردية افتتاح النظام',
-    });
+    const shift1 = await db.shifts.get('shift_1');
+    if (!shift1) {
+      await db.shifts.put({
+        id: 'shift_1',
+        shiftNumber: 1,
+        cashierId: 'usr_admin',
+        cashierName: 'المدير العام (المالك)',
+        startTime: new Date().toISOString(),
+        status: 'open',
+        openingCash: 2500,
+        openingWallets: {
+          wlt_vodafone_1: 5000,
+          wlt_vodafone_2: 3200,
+          wlt_instapay: 12500,
+          wlt_orange: 2000,
+          wlt_etisalat: 2500,
+        },
+        closingCashSystem: 2500,
+        closingCashActual: 0,
+        cashDifference: 0,
+        totalSalesCash: 0,
+        totalWalletIn: 0,
+        totalWalletOut: 0,
+        totalCommissions: 0,
+        totalExpenses: 0,
+        notes: 'وردية افتتاح النظام',
+      });
+    }
+  }
+  } catch (error) {
+    console.warn('Database initialization note:', error);
   }
 }

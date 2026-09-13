@@ -26,9 +26,13 @@ export function App() {
   const activeShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
 
   useEffect(() => {
-    initializeDatabase().then(() => {
-      setDbReady(true);
-    });
+    initializeDatabase()
+      .catch((err) => {
+        console.warn('Init DB note:', err);
+      })
+      .finally(() => {
+        setDbReady(true);
+      });
   }, []);
 
   if (!dbReady) {
