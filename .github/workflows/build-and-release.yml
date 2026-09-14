@@ -1,0 +1,132 @@
+name: Build & Release 3amory phone POS
+
+on:
+  push:
+    branches: [ master, main ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test-and-build-web:
+    name: 🧪 Run System Tests & Build Web POS
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 📦 Install Dependencies
+        run: npm ci
+
+      - name: 🧪 Execute Full POS System Test Suite (49 Tests)
+        run: npm run test:system
+
+      - name: 🔨 Compile Production Web Build
+        run: npm run build
+
+      - name: 📤 Upload Web Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: dist/
+          retention-days: 14
+
+  build-desktop-windows:
+    name: 🪟 Build Windows Desktop (.exe Installer & Portable)
+    needs: test-and-build-web
+    runs-on: windows-latest
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 📦 Install Dependencies
+        run: npm ci
+
+      - name: 🔨 Compile & Package Windows Binaries
+        run: npm run build:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📤 Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-desktop-binaries
+          path: release/*.exe
+          retention-days: 30
+
+  build-desktop-linux:
+    name: 🐧 Build Linux Desktop (AppImage)
+    needs: test-and-build-web
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 📦 Install Dependencies
+        run: npm ci
+
+      - name: 🔨 Compile & Package Linux AppImage
+        run: npm run build:linux
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📤 Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-desktop-binaries
+          path: release/*.AppImage
+          retention-days: 30
+
+  create-github-release:
+    name: 🚀 Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-desktop-windows, build-desktop-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 📥 Download Windows Binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-desktop-binaries
+          path: release-assets/
+
+      - name: 📥 Download Linux Binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-desktop-binaries
+          path: release-assets/
+
+      - name: 🎉 Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

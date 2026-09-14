@@ -38,6 +38,13 @@ export interface StoreSettings {
     instapayFeePerThousand: number; // عمولة إنستاباي لكل 1000 جنيه
     minInstapayFee: number;         // الحد الأدنى لعمولة إنستاباي
   };
+  qzTrayConfig?: {
+    enabled: boolean;
+    host: string;
+    port: number;
+    printerName: string;
+    autoPrint: boolean;
+  };
 }
 
 export interface User {

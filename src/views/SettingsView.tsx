@@ -14,9 +14,14 @@ import {
   Cloud,
   Percent,
   Zap,
+  RefreshCw,
+  Wifi,
+  WifiOff,
+  Server,
 } from 'lucide-react';
 import { db } from '../db';
-import { triggerPrint, kickCashDrawer } from '../services/printer';
+import { triggerPrint, kickCashDrawer, buildEscPosReceiptBuffer } from '../services/printer';
+import { qzTrayService } from '../services/qzTrayService';
 import { syncDataToFirebase } from '../services/firebase';
 import { useModal } from '../context/ModalContext';
 import type { StoreSettings } from '../types';
@@ -33,6 +38,90 @@ export const SettingsView: React.FC = () => {
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [activeTab, setActiveTab] = useState<'store' | 'receipt' | 'commissions' | 'backup'>('store');
   const [simAmount, setSimAmount] = useState<number>(1000);
+  const [qzStatus, setQzStatus] = useState(qzTrayService.getStatus());
+  const [qzConnecting, setQzConnecting] = useState(false);
+
+  useEffect(() => {
+    const unsub = qzTrayService.onStatusChange((status) => {
+      setQzStatus({ ...status });
+    });
+    return () => unsub();
+  }, []);
+
+  const handleConnectAndRefreshQz = async () => {
+    setQzConnecting(true);
+    try {
+      const ok = await qzTrayService.connect();
+      if (ok) {
+        const printers = await qzTrayService.refreshPrinters();
+        showToast(`تم الاتصال بـ QZ Tray! تم العثور على ${printers.length} طابعة.`);
+        if (printers.length > 0 && formData && !formData.qzTrayConfig?.printerName) {
+          setFormData({
+            ...formData,
+            qzTrayConfig: {
+              enabled: formData.qzTrayConfig?.enabled ?? true,
+              host: formData.qzTrayConfig?.host || 'localhost',
+              port: formData.qzTrayConfig?.port || 8182,
+              printerName: printers[0],
+              autoPrint: formData.qzTrayConfig?.autoPrint ?? false,
+            },
+          });
+        }
+      } else {
+        showAlert(
+          'تعذر الاتصال بـ QZ Tray',
+          'تأكد من تشغيل تطبيق QZ Tray على هذا الجهاز (يعمل افتراضياً على المنفذ ws://localhost:8182).'
+        );
+      }
+    } catch (err: any) {
+      showToast(`خطأ الاتصال: ${err?.message || 'غير معروف'}`);
+    } finally {
+      setQzConnecting(false);
+    }
+  };
+
+  const handleTestQzSilentPrint = async () => {
+    if (!formData) return;
+    try {
+      const rawData = buildEscPosReceiptBuffer({
+        type: 'sale_receipt',
+        invoice: {
+          id: 'test_qz',
+          invoiceNumber: 'TEST-QZ-001',
+          shiftId: 'shift_1',
+          cashierName: 'كاشير تجريبي',
+          customerName: 'عميل تجريبي',
+          customerPhone: '01012345678',
+          items: [
+            { itemId: '1', type: 'accessory', name: 'شاحن سريع 20W', quantity: 1, unitPrice: 250, totalPrice: 250, costPrice: 150 },
+            { itemId: '2', type: 'accessory', name: 'سماعة سلكية أصلية', quantity: 1, unitPrice: 100, totalPrice: 100, costPrice: 60 },
+          ],
+          subtotal: 350,
+          discount: 0,
+          tax: 0,
+          total: 350,
+          paidAmount: 350,
+          remainingAmount: 0,
+          paymentMethod: 'cash',
+          totalProfit: 140,
+          status: 'completed',
+          createdAt: new Date().toISOString(),
+        },
+        settings: formData,
+      });
+
+      const targetPrinter = formData.qzTrayConfig?.printerName || qzStatus.defaultPrinter || qzStatus.printers[0];
+      if (!targetPrinter) {
+        showAlert('تنبيه', 'يرجى كتابة أو اختيار اسم الطابعة المسجلة في QZ Tray.');
+        return;
+      }
+
+      await qzTrayService.printRaw(targetPrinter, rawData);
+      showToast('تم إرسال أمر الطباعة الصامتة عبر QZ Tray بنجاح! 🖨️');
+    } catch (err: any) {
+      showAlert('فشل الطباعة عبر QZ Tray', err?.message || 'تأكد من تشغيل برنامج QZ Tray وصلاحيات الطابعة.');
+    }
+  };
 
   useEffect(() => {
     if (currentSettings) {
@@ -435,35 +524,170 @@ export const SettingsView: React.FC = () => {
               </div>
             </div>
 
-            {/* Desktop Thermal Printer Engine Panel */}
-            <div className="p-4 rounded-2xl bg-gradient-to-r from-slate-900 to-indigo-950 text-white flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm">
-              <div>
-                <div className="flex items-center gap-2">
-                  <Printer className="h-5 w-5 text-blue-400" />
-                  <h4 className="font-display font-bold text-sm text-white">
-                    محرك الطباعة الحرارية المباشر للديسكتوب (ESC/POS)
-                  </h4>
+            {/* QZ Tray & Desktop Thermal Printer Engine Panel */}
+            <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white shadow-md border border-slate-700/60 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-700/60">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                    <Server className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-display font-bold text-sm text-white flex items-center gap-2">
+                      سيرفر الطباعة الحرارية الصامت (QZ Tray & ESC/POS)
+                      {qzStatus.connected ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                          متصل
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                          <span className="h-1.5 w-1.5 rounded-full bg-rose-400"></span>
+                          غير متصل
+                        </span>
+                      )}
+                    </h4>
+                    <p className="text-xs text-slate-300 mt-0.5">
+                      طباعة صامتة فورية وسريعة جداً بدون نافذة المتصفح، مع دعم فتح درج الكاشير وقص الورق التلقائي.
+                    </p>
+                  </div>
                 </div>
-                <p className="text-xs text-slate-300 mt-1">
-                  يدعم الطابعات الحرارية USB و الشبكة مع إرسال نبضة فتح درج الكاشير والقص التلقائي للورق.
-                </p>
+
+                <div className="flex items-center gap-2 self-end sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={handleConnectAndRefreshQz}
+                    disabled={qzConnecting}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 font-bold text-xs transition cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${qzConnecting ? 'animate-spin text-blue-400' : ''}`} />
+                    <span>{qzConnecting ? 'جاري الفحص...' : 'فحص الاتصال والطابعات'}</span>
+                  </button>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              {/* QZ Tray Configuration */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-900/60 p-4 rounded-xl border border-slate-700/40 text-xs">
+                <div>
+                  <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-200 mb-2">
+                    <input
+                      type="checkbox"
+                      checked={formData.qzTrayConfig?.enabled ?? false}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          qzTrayConfig: {
+                            enabled: e.target.checked,
+                            host: formData.qzTrayConfig?.host || 'localhost',
+                            port: formData.qzTrayConfig?.port || 8182,
+                            printerName: formData.qzTrayConfig?.printerName || '',
+                            autoPrint: formData.qzTrayConfig?.autoPrint ?? false,
+                          },
+                        })
+                      }
+                      className="h-4 w-4 rounded text-blue-600 bg-slate-800 border-slate-600 focus:ring-0"
+                    />
+                    <span>تفعيل سيرفر الطباعة الصامت QZ Tray</span>
+                  </label>
+                  <p className="text-[11px] text-slate-400 leading-relaxed mr-6">
+                    عند التفعيل، تُرسل الفاتورة مباشرة إلى الطابعة بدون ظهور نافذة المتصفح (موصى به للديسكتوب ونقاط البيع السريعة).
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-200 mb-1">طابعة الكاشير المستهدفة</label>
+                  {qzStatus.printers && qzStatus.printers.length > 0 ? (
+                    <div className="flex gap-2">
+                      <select
+                        value={formData.qzTrayConfig?.printerName || ''}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            qzTrayConfig: {
+                              enabled: formData.qzTrayConfig?.enabled ?? true,
+                              host: formData.qzTrayConfig?.host || 'localhost',
+                              port: formData.qzTrayConfig?.port || 8182,
+                              printerName: e.target.value,
+                              autoPrint: formData.qzTrayConfig?.autoPrint ?? false,
+                            },
+                          })
+                        }
+                        className="w-full rounded-xl bg-slate-800 border border-slate-600 p-2 text-xs font-bold text-white focus:outline-none focus:border-blue-500"
+                      >
+                        <option value="">-- اختر الطابعة الحرارية --</option>
+                        {qzStatus.printers.map((p) => (
+                          <option key={p} value={p}>
+                            {p} {p === qzStatus.defaultPrinter ? ' (الافتراضية)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={handleConnectAndRefreshQz}
+                        title="إعادة فحص الطابعات"
+                        className="px-2.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-600"
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <input
+                        type="text"
+                        placeholder="مثال: POS-80 أو XP-80C أو Thermal Printer"
+                        value={formData.qzTrayConfig?.printerName || ''}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            qzTrayConfig: {
+                              enabled: formData.qzTrayConfig?.enabled ?? false,
+                              host: formData.qzTrayConfig?.host || 'localhost',
+                              port: formData.qzTrayConfig?.port || 8182,
+                              printerName: e.target.value,
+                              autoPrint: formData.qzTrayConfig?.autoPrint ?? false,
+                            },
+                          })
+                        }
+                        className="w-full rounded-xl bg-slate-800 border border-slate-600 p-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                      />
+                      <p className="text-[10px] text-slate-400">
+                        {qzStatus.connected
+                          ? 'لم يتم العثور على طابعات مثبتة، اكتب اسم الطابعة يدوياً.'
+                          : 'شغّل QZ Tray واضغط "فحص الاتصال والطابعات" لتحميل الطابعات تلقائياً.'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={async () => {
-                    const kicked = await kickCashDrawer();
+                    const kicked = await kickCashDrawer(formData.qzTrayConfig?.printerName);
                     if (kicked) {
-                      showToast('تم إرسال نبضة فتح درج الكاشير بنجاح');
+                      showToast('تم إرسال نبضة فتح درج الكاشير بنجاح! ⚡');
                     } else {
-                      showToast('تم تشغيل محرك الدرج (جاهز مع نسخة الديسكتوب)');
+                      showToast('تم إرسال أمر فتح الدرج عبر وسيط الطباعة');
                     }
                   }}
-                  className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs transition cursor-pointer"
+                  className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 font-bold text-xs transition cursor-pointer flex items-center gap-1.5"
                 >
-                  ⚡ فتح درج الكاشير
+                  <Zap className="h-3.5 w-3.5 text-amber-400" />
+                  <span>فتح درج الكاشير</span>
                 </button>
+
+                {formData.qzTrayConfig?.enabled && (
+                  <button
+                    type="button"
+                    onClick={handleTestQzSilentPrint}
+                    className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Printer className="h-3.5 w-3.5" />
+                    <span>طباعة تجريبية صامتة (QZ Tray)</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => {
@@ -494,9 +718,10 @@ export const SettingsView: React.FC = () => {
                       settings: formData,
                     });
                   }}
-                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition cursor-pointer flex items-center gap-1.5"
                 >
-                  🖨️ طباعة إيصال تجريبي
+                  <Printer className="h-3.5 w-3.5" />
+                  <span>معاينة إيصال تجريبي</span>
                 </button>
               </div>
             </div>

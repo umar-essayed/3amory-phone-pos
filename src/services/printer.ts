@@ -212,10 +212,19 @@ export function buildEscPosReceiptBuffer(printData: PrintData): Uint8Array {
   return result;
 }
 
+import { qzTrayService } from './qzTrayService';
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Cash Drawer Kick Command (Open Drawer)
 // ═══════════════════════════════════════════════════════════════════════════
-export async function kickCashDrawer(): Promise<boolean> {
+export async function kickCashDrawer(targetPrinterName?: string): Promise<boolean> {
+  // 1. Try QZ Tray Server
+  try {
+    const qzSuccess = await qzTrayService.kickCashDrawer(targetPrinterName);
+    if (qzSuccess) return true;
+  } catch {}
+
+  // 2. Try Desktop Bridge (Electron / Tauri / Serial)
   const bridge = detectDesktopEnvironment();
   if (bridge.kickDrawer) {
     return bridge.kickDrawer();
@@ -227,12 +236,25 @@ export async function kickCashDrawer(): Promise<boolean> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Main Unified Print Trigger
+// Main Unified Print Trigger (QZ Tray Server -> Desktop Bridge -> Preview)
 // ═══════════════════════════════════════════════════════════════════════════
 export async function triggerPrint(printData: PrintData): Promise<void> {
-  const bridge = detectDesktopEnvironment();
+  // 1. Check QZ Tray Server (Silent High-Speed Thermal Printing)
+  const qzConfig = printData.settings.qzTrayConfig;
+  if (qzConfig?.enabled) {
+    try {
+      const rawBuffer = buildEscPosReceiptBuffer(printData);
+      const printed = await qzTrayService.printRaw(qzConfig.printerName, rawBuffer);
+      if (printed) {
+        return;
+      }
+    } catch (err) {
+      console.warn('QZ Tray print note (fallback to preview):', err);
+    }
+  }
 
-  // If running in Desktop mode with native printer bridge, print raw directly!
+  // 2. If running in Desktop mode with native printer bridge, print raw directly
+  const bridge = detectDesktopEnvironment();
   if (bridge.isDesktop && bridge.printRaw) {
     try {
       const rawBuffer = buildEscPosReceiptBuffer(printData);
@@ -243,7 +265,7 @@ export async function triggerPrint(printData: PrintData): Promise<void> {
     }
   }
 
-  // Fallback / standard: dispatch print event for the custom preview & thermal dialog
+  // 3. Fallback / standard: dispatch print event for custom preview & browser print
   const event = new CustomEvent('mobile-pos-print', { detail: printData });
   window.dispatchEvent(event);
 }

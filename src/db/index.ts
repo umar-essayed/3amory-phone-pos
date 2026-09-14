@@ -92,6 +92,13 @@ export const DEFAULT_SETTINGS: StoreSettings = {
     instapayFeePerThousand: 5,
     minInstapayFee: 5,
   },
+  qzTrayConfig: {
+    enabled: false,
+    host: 'localhost',
+    port: 8182,
+    printerName: '',
+    autoPrint: false,
+  },
 };
 
 let initPromise: Promise<void> | null = null;
