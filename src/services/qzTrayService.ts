@@ -1,7 +1,11 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // QZ Tray Professional POS Printing Service
 // Direct WebSocket Communication with QZ Tray Desktop Print Server
+// Uses Official QZ Tray Security & Digital Signatures for 100% Silent Printing
 // ═══════════════════════════════════════════════════════════════════════════
+
+import qz from 'qz-tray';
+import { initQzSecurity } from '../constants/qzSecurity';
 
 export interface QZTrayStatus {
   connected: boolean;
@@ -19,9 +23,6 @@ export interface QZTrayConfig {
 }
 
 class QZTrayService {
-  private ws: WebSocket | null = null;
-  private requestId = 0;
-  private promises: Map<number, { resolve: (val: any) => void; reject: (err: any) => void }> = new Map();
   private statusListeners: Set<(status: QZTrayStatus) => void> = new Set();
   private isConnecting = false;
   private currentStatus: QZTrayStatus = {
@@ -37,9 +38,9 @@ class QZTrayService {
   };
 
   constructor() {
-    // Attempt lazy initial connection in background if in browser
+    // Attempt lazy initial connection in background if in browser / desktop
     if (typeof window !== 'undefined') {
-      setTimeout(() => this.connect().catch(() => {}), 1000);
+      setTimeout(() => this.connect().catch(() => {}), 1500);
     }
   }
 
@@ -68,144 +69,74 @@ class QZTrayService {
   }
 
   /**
-   * Connects to QZ Tray WebSocket Server
+   * Connects to QZ Tray WebSocket Server with digital signatures and certificate
    */
   public async connect(): Promise<boolean> {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      return true;
-    }
+    try {
+      if (qz.websocket.isActive()) {
+        this.currentStatus.connected = true;
+        this.currentStatus.error = undefined;
+        return true;
+      }
+    } catch {}
 
     if (this.isConnecting) return false;
     this.isConnecting = true;
 
-    // Try standard ws:// port 8182, then fallback to wss:// port 8181
-    const urls = [
-      `ws://${this.config.host}:${this.config.port}`,
-      `wss://${this.config.host}:${this.config.securePort}`,
-    ];
+    try {
+      // 1. Initialize digital certificate & request signer
+      initQzSecurity();
 
-    for (const url of urls) {
+      // 2. Connect via official QZ WebSocket engine
+      await qz.websocket.connect({
+        host: this.config.host,
+        port: {
+          insecure: [this.config.port || 8182],
+          secure: [this.config.securePort || 8181],
+        },
+        usingSecure: false,
+        retries: 2,
+        delay: 1,
+      });
+
+      this.currentStatus.connected = true;
+      this.currentStatus.error = undefined;
+      this.isConnecting = false;
+
+      // 3. Fetch version and available printers
       try {
-        const connected = await this.tryConnectUrl(url);
-        if (connected) {
-          this.isConnecting = false;
-          await this.refreshPrinters();
-          return true;
-        }
-      } catch {
-        // try next url
-      }
-    }
+        const ver = await qz.api.getVersion();
+        this.currentStatus.version = ver;
+      } catch {}
 
-    this.isConnecting = false;
-    this.currentStatus = {
-      connected: false,
-      printers: [],
-      error: 'تعذر الاتصال بـ QZ Tray. تأكد من تشغيله على الجهاز المحلي (ws://localhost:8182).',
-    };
-    this.notifyStatus();
-    return false;
-  }
-
-  private tryConnectUrl(url: string): Promise<boolean> {
-    return new Promise((resolve) => {
-      try {
-        const socket = new WebSocket(url);
-
-        const timeout = setTimeout(() => {
-          socket.close();
-          resolve(false);
-        }, 2000);
-
-        socket.onopen = () => {
-          clearTimeout(timeout);
-          this.ws = socket;
-          this.setupSocketHandlers(socket);
-          this.currentStatus.connected = true;
-          this.currentStatus.error = undefined;
-          this.notifyStatus();
-          resolve(true);
-        };
-
-        socket.onerror = () => {
-          clearTimeout(timeout);
-          resolve(false);
-        };
-      } catch {
-        resolve(false);
-      }
-    });
-  }
-
-  private setupSocketHandlers(socket: WebSocket) {
-    socket.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        // Handle RPC response
-        if (msg.uid !== undefined && this.promises.has(msg.uid)) {
-          const { resolve, reject } = this.promises.get(msg.uid)!;
-          this.promises.delete(msg.uid);
-
-          if (msg.error) {
-            reject(new Error(typeof msg.error === 'string' ? msg.error : JSON.stringify(msg.error)));
-          } else {
-            resolve(msg.result !== undefined ? msg.result : msg);
-          }
-        }
-      } catch (err) {
-        console.warn('QZ Tray incoming message parse note:', err);
-      }
-    };
-
-    socket.onclose = () => {
-      this.ws = null;
-      this.currentStatus.connected = false;
+      await this.refreshPrinters();
+      return true;
+    } catch (err: any) {
+      this.isConnecting = false;
+      this.currentStatus = {
+        connected: false,
+        printers: [],
+        error: `تعذر الاتصال بـ QZ Tray: ${err?.message || err}`,
+      };
       this.notifyStatus();
-    };
-
-    socket.onerror = (err) => {
-      console.warn('QZ Tray socket error:', err);
-      this.currentStatus.connected = false;
-      this.notifyStatus();
-    };
-  }
-
-  private sendRPC<T = any>(call: string, params: any = {}): Promise<T> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      return Promise.reject(new Error('سيرفر الطباعة QZ Tray غير متصل حالياً.'));
+      return false;
     }
-
-    const uid = ++this.requestId;
-    const payload = JSON.stringify({
-      call,
-      params,
-      uid,
-      timestamp: Date.now(),
-    });
-
-    return new Promise<T>((resolve, reject) => {
-      this.promises.set(uid, { resolve, reject });
-      this.ws!.send(payload);
-
-      // Timeout safety
-      setTimeout(() => {
-        if (this.promises.has(uid)) {
-          this.promises.delete(uid);
-          reject(new Error(`انتهت مهلة استجابة QZ Tray للطلب (${call})`));
-        }
-      }, 10000);
-    });
   }
 
   /**
-   * Refreshes printer list and default printer
+   * Refreshes printer list and default printer without any security dialogs
    */
   public async refreshPrinters(): Promise<string[]> {
     try {
-      const printers = await this.sendRPC<string[]>('printers.find');
+      if (!qz.websocket.isActive()) {
+        const ok = await this.connect();
+        if (!ok) return [];
+      }
+
+      const printers = await qz.printers.find();
       let defaultPrinter: string | undefined;
       try {
-        defaultPrinter = await this.sendRPC<string>('printers.getDefault');
+        defaultPrinter = await qz.printers.getDefault();
       } catch {}
 
       this.currentStatus.printers = Array.isArray(printers) ? printers : [];
@@ -219,7 +150,7 @@ class QZTrayService {
   }
 
   /**
-   * Prints raw ESC/POS binary data directly to thermal printer
+   * Prints raw ESC/POS binary data directly and silently to thermal printer
    */
   public async printRaw(printerName: string, rawBytes: Uint8Array): Promise<boolean> {
     const isConnected = await this.connect();
@@ -227,12 +158,17 @@ class QZTrayService {
       throw new Error('سيرفر الطباعة QZ Tray غير متصل. يرجى التأكد من تشغيله.');
     }
 
-    const targetPrinter = printerName || this.currentStatus.defaultPrinter || this.currentStatus.printers[0];
+    const targetPrinter =
+      printerName ||
+      this.config.printerName ||
+      this.currentStatus.defaultPrinter ||
+      this.currentStatus.printers[0];
+
     if (!targetPrinter) {
-      throw new Error('لم يتم تحديد طابعة حرارية صالحة في QZ Tray.');
+      throw new Error('لم يتم تحديد طابعة صالحة في QZ Tray.');
     }
 
-    // Convert binary to base64
+    // Convert byte array to base64
     let binaryStr = '';
     const len = rawBytes.byteLength;
     for (let i = 0; i < len; i++) {
@@ -240,27 +176,33 @@ class QZTrayService {
     }
     const base64Data = btoa(binaryStr);
 
-    const printPayload = {
-      printer: { name: targetPrinter },
-      data: [
-        {
-          type: 'raw',
-          format: 'command',
-          flavor: 'base64',
-          data: base64Data,
-        },
-      ],
-    };
+    const config = qz.configs.create(targetPrinter, {
+      encoding: 'UTF-8',
+    });
 
-    await this.sendRPC('print', printPayload);
+    const data = [
+      {
+        type: 'raw',
+        format: 'command',
+        flavor: 'base64',
+        data: base64Data,
+      },
+    ];
+
+    await qz.print(config, data as any);
     return true;
   }
 
   /**
-   * Directly kicks cash drawer connected to printer
+   * Directly kicks cash drawer connected to thermal printer
    */
   public async kickCashDrawer(printerName?: string): Promise<boolean> {
-    const target = printerName || this.config.printerName || this.currentStatus.defaultPrinter || this.currentStatus.printers[0];
+    const target =
+      printerName ||
+      this.config.printerName ||
+      this.currentStatus.defaultPrinter ||
+      this.currentStatus.printers[0];
+
     if (!target) return false;
 
     // Standard ESC/POS kick drawer command: ESC p 0 25 250
@@ -271,11 +213,12 @@ class QZTrayService {
   /**
    * Disconnects WebSocket cleanly
    */
-  public disconnect() {
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
+  public async disconnect() {
+    try {
+      if (qz.websocket.isActive()) {
+        await qz.websocket.disconnect();
+      }
+    } catch {}
     this.currentStatus.connected = false;
     this.notifyStatus();
   }

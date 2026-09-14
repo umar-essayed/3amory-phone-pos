@@ -14,10 +14,12 @@ release
 release-assets
 *.AppImage
 *.exe
+*.run
 *.blockmap
 *.local
 *firebase*.json
 *-adminsdk-*.json
+f0dd08c5-8a7a-4602-b71b-022bb4a87384.png
 
 # Editor directories and files
 .vscode/*

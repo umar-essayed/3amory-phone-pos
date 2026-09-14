@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   kickDrawer: () => ipcRenderer.invoke('printer:kick-drawer'),
   launchQzTray: () => ipcRenderer.invoke('printer:launch-qz'),
   downloadQzTray: () => ipcRenderer.invoke('printer:download-qz'),
+  qzSign: (toSign) => ipcRenderer.invoke('qz:sign', toSign),
+  qzGetCertificate: () => ipcRenderer.invoke('qz:get-certificate'),
 
   // Window Controls
   minimize: () => ipcRenderer.invoke('window:minimize'),
