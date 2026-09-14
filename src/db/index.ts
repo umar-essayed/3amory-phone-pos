@@ -195,7 +195,48 @@ async function doInitializeDatabase() {
         });
       }
     }
+
+    // Auto-heal any shifts that might have negative closingCashSystem
+    await repairNegativeShifts();
   } catch (error) {
     console.warn('Database initialization note:', error);
+  }
+}
+
+export async function repairNegativeShifts(): Promise<void> {
+  try {
+    const shifts = await db.shifts.toArray();
+    for (const shift of shifts) {
+      if (shift.closingCashSystem < 0) {
+        const cashInvoices = await db.invoices.where('shiftId').equals(shift.id).toArray();
+        const cashSales = cashInvoices
+          .filter((inv) => inv.paymentMethod === 'cash')
+          .reduce((sum, inv) => sum + inv.total, 0);
+        const cashReturns = cashInvoices
+          .filter((inv) => inv.paymentMethod === 'cash')
+          .reduce((sum, inv) => sum + (inv.returnedAmount || 0), 0);
+
+        const walletTxs = await db.walletTransactions.where('shiftId').equals(shift.id).toArray();
+        const commissions = walletTxs.reduce((sum, tx) => sum + (tx.netProfit ?? tx.commission ?? 0), 0);
+
+        const shiftExpenses = await db.expenses.where('shiftId').equals(shift.id).toArray();
+        const expensesTotal = shiftExpenses.reduce((sum, exp) => sum + exp.amount, 0);
+
+        const trueSystemCash = Math.max(
+          0,
+          (shift.openingCash || 0) + cashSales + commissions - expensesTotal - cashReturns
+        );
+
+        await db.shifts.update(shift.id, {
+          closingCashSystem: trueSystemCash,
+          totalSalesCash: cashSales,
+          totalCommissions: commissions,
+          totalExpenses: expensesTotal,
+          totalReturnsCash: cashReturns,
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('Shift balance repair note:', err);
   }
 }

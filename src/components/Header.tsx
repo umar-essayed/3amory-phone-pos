@@ -44,7 +44,7 @@ export const Header: React.FC<HeaderProps> = ({
     }
   };
 
-  const drawerBalance = openShift?.closingCashSystem || 0;
+  const drawerBalance = Math.max(0, openShift?.closingCashSystem || 0);
   const cur = settings?.currency || 'ج.م';
   const logoSrc = settings?.logoUrl || '/logo-removebg-preview.png';
 

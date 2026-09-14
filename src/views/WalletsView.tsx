@@ -225,19 +225,12 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
 
       const shift = await db.shifts.get(activeShiftId);
       if (shift) {
-        if (txType === 'cash_out_to_customer' || txType === 'instapay_transfer') {
-          await db.shifts.update(activeShiftId, {
-            closingCashSystem: shift.closingCashSystem + numAmount + numCommission,
-            totalWalletIn: shift.totalWalletIn + numAmount + numCommission,
-            totalCommissions: shift.totalCommissions + numCommission,
-          });
-        } else if (txType === 'cash_in_from_customer') {
-          await db.shifts.update(activeShiftId, {
-            closingCashSystem: shift.closingCashSystem - (numAmount - numCommission),
-            totalWalletOut: shift.totalWalletOut + numAmount,
-            totalCommissions: shift.totalCommissions + numCommission,
-          });
-        }
+        await db.shifts.update(activeShiftId, {
+          closingCashSystem: shift.closingCashSystem + numCommission,
+          totalCommissions: shift.totalCommissions + numCommission,
+          totalWalletIn: txType === 'cash_out_to_customer' ? shift.totalWalletIn + numAmount : shift.totalWalletIn,
+          totalWalletOut: txType === 'cash_in_from_customer' ? shift.totalWalletOut + numAmount : shift.totalWalletOut,
+        });
       }
     });
 

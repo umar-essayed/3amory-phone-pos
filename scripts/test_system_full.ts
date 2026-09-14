@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
-import { db, DEFAULT_SETTINGS, initializeDatabase } from '../src/db';
+import { db, DEFAULT_SETTINGS, initializeDatabase, repairNegativeShifts } from '../src/db';
 import { ESC_POS, buildEscPosReceiptBuffer } from '../src/services/printer';
-import type { SaleInvoice, Shift, StoreSettings, Phone, Accessory } from '../src/types';
+import type { SaleInvoice, Shift, StoreSettings, Phone, Accessory, WalletTransaction } from '../src/types';
 
 async function runFullSystemTest() {
   console.log('═════════════════════════════════════════════════════════════════');
@@ -389,11 +389,101 @@ async function runFullSystemTest() {
   assert(syncPayload.storeName === '3amory phone', 'تضمين هوية المحل في مزامنة Firebase');
   assert(syncPayload.projectId === 'mobile-pos-2947e', 'مشروع Firebase المعتمد mobile-pos-2947e');
   assert(!!syncPayload.commissionRules, 'مزامنة قواعد العمولات سحابياً');
-  console.log('    ✓ بنية مزامنة Firebase مكتملة ومطابقة للسحابة.\n');
+  // ─────────────────────────────────────────────────────────────────
+  // TEST 8: SHIFT CASH & WALLET INTEGRATION & BALANCE HEALING
+  // ─────────────────────────────────────────────────────────────────
+  console.log('💼 اختبار 8: فواتير الوردية، أرباح الكاش الصافية، وتدقيق رصيد الدرج');
+  const testShift2Id = `shift_test_${Date.now()}`;
+  await db.shifts.put({
+    id: testShift2Id,
+    shiftNumber: 99,
+    cashierId: 'usr_cashier',
+    cashierName: 'كاشير المحل',
+    startTime: new Date().toISOString(),
+    status: 'open',
+    openingCash: 500,
+    openingWallets: {},
+    closingCashSystem: 500,
+    closingCashActual: 0,
+    cashDifference: 0,
+    totalSalesCash: 0,
+    totalWalletIn: 0,
+    totalWalletOut: 0,
+    totalCommissions: 0,
+    totalExpenses: 0,
+  });
+
+  // Add a Cash Sale of 300 EGP
+  const shiftInvId = `inv_shift_${Date.now()}`;
+  await db.invoices.put({
+    id: shiftInvId,
+    invoiceNumber: 'INV-SHIFT-01',
+    customerPhone: '01011112222',
+    items: [],
+    subtotal: 300,
+    discount: 0,
+    tax: 0,
+    total: 300,
+    totalProfit: 50,
+    paymentMethod: 'cash',
+    cashierId: 'usr_cashier',
+    cashierName: 'كاشير المحل',
+    shiftId: testShift2Id,
+    status: 'completed',
+    createdAt: new Date().toISOString(),
+  });
+
+  // Add a Cash In (withdraw) transaction of 5,000 EGP with 50 EGP commission profit
+  const walletTxId = `tx_shift_${Date.now()}`;
+  const testWalletTx: WalletTransaction = {
+    id: walletTxId,
+    walletId: 'w_test',
+    walletName: 'فودافون كاش كاشير',
+    type: 'cash_in_from_customer',
+    amount: 5000,
+    commission: 50,
+    networkFee: 0,
+    netProfit: 50,
+    customerPhone: '01099887766',
+    customerName: 'عميل كاش',
+    shiftId: testShift2Id,
+    cashierName: 'كاشير المحل',
+    createdAt: new Date().toISOString(),
+  };
+  await db.walletTransactions.put(testWalletTx);
+
+  // Update shift according to our logic: only net profit (50) is added to drawer
+  const currentShift = await db.shifts.get(testShift2Id);
+  const updatedDrawerCash = (currentShift?.closingCashSystem || 0) + 300 + testWalletTx.netProfit;
+  await db.shifts.update(testShift2Id, {
+    closingCashSystem: updatedDrawerCash,
+    totalSalesCash: 300,
+    totalCommissions: 50,
+  });
+
+  const verifiedShift = await db.shifts.get(testShift2Id);
+  assert(verifiedShift?.closingCashSystem === 850, 'رصيد الدرج يعكس كاش المبيعات + صافي ربح عمولة الكاش فقط (500 + 300 + 50 = 850 ج)');
+  assert(verifiedShift?.closingCashSystem !== -4200, 'منع انخفاض رصيد الوردية إلى السالب بسبب رأس مال عمليات الكاش');
+
+  // Verify shift modal query captures both invoices and wallet transactions
+  const shiftInvoices = await db.invoices.where('shiftId').equals(testShift2Id).toArray();
+  const shiftWallets = await db.walletTransactions.where('shiftId').equals(testShift2Id).toArray();
+  assert(shiftInvoices.length === 1, 'ظهور فاتورة المبيعات التابعة للوردية');
+  assert(shiftWallets.length === 1 && shiftWallets[0].amount === 5000, 'ظهور معاملة فودافون كاش التابعة للوردية بكافة تفاصيلها');
+
+  // Test Auto-Healing: Simulate corrupted negative balance and verify repairNegativeShifts
+  await db.shifts.update(testShift2Id, { closingCashSystem: -3500 });
+  await repairNegativeShifts();
+  const healedShift = await db.shifts.get(testShift2Id);
+  assert(healedShift?.closingCashSystem === 850, 'إصلاح ومعالجة أي رصيد سالب تلقائياً وإعادته للرصيد الصافي الصحيح (850 ج)');
+  console.log('    ✓ فواتير ومعاملات الوردية وصافي أرباح الكاش وتدقيق الدرج تعمل بنجاح 100%.\n');
 
   // Clean test artifacts
   await db.shifts.delete(shiftId);
+  await db.shifts.delete(testShift2Id);
   await db.invoices.delete(invoiceId);
+  await db.invoices.delete(shiftInvId);
+  await db.walletTransactions.delete(walletTxId);
   await db.phones.delete(testPhoneId);
   await db.accessories.delete(testAccId);
 

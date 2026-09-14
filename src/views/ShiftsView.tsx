@@ -35,6 +35,24 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
   // Active shift invoices count
   const activeShiftInvoicesCount =
     useLiveQuery(() => db.invoices.where('shiftId').equals(activeShiftId).count()) || 0;
+  // Active shift wallet transactions count
+  const activeShiftWalletCount =
+    useLiveQuery(() => db.walletTransactions.where('shiftId').equals(activeShiftId).count()) || 0;
+
+  // Auto-heal active shift if drawer balance is negative
+  React.useEffect(() => {
+    if (activeShift && activeShift.closingCashSystem < 0) {
+      const repaired = Math.max(
+        0,
+        (activeShift.openingCash || 0) +
+          (activeShift.totalSalesCash || 0) +
+          (activeShift.totalCommissions || 0) -
+          (activeShift.totalExpenses || 0) -
+          (activeShift.totalReturnsCash || 0)
+      );
+      db.shifts.update(activeShift.id, { closingCashSystem: repaired });
+    }
+  }, [activeShift]);
 
   // Selected shift for viewing invoices modal
   const [selectedShiftForInvoices, setSelectedShiftForInvoices] = useState<{
@@ -200,9 +218,9 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
                 className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 text-xs font-black shadow-md hover:shadow-lg transition active:scale-95 cursor-pointer border border-blue-400/40"
               >
                 <Receipt className="h-4 w-4" />
-                <span>فواتير الوردية الحالية</span>
+                <span>فواتير ومعاملات الوردية</span>
                 <span className="bg-white/20 px-2 py-0.5 rounded-full text-[11px] font-mono font-bold">
-                  {activeShiftInvoicesCount}
+                  {activeShiftInvoicesCount + activeShiftWalletCount}
                 </span>
               </button>
 
@@ -246,7 +264,7 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
             </div>
 
             <div>
-              <span className="text-xs text-slate-400 block">أرباح عمولات الكاش:</span>
+              <span className="text-xs text-slate-400 block">أرباح عمولات الكاش (صافي الربح):</span>
               <span className="text-lg font-black font-mono text-purple-400 mt-1 block">
                 +{activeShift.totalCommissions.toLocaleString()} {settings?.currency || 'ج'}
               </span>
@@ -324,7 +342,7 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition cursor-pointer border border-slate-200 shadow-2xs self-start sm:self-auto"
           >
             <Receipt className="h-4 w-4 text-blue-600" />
-            <span>كافة فواتير النظام (المرتجعات والبحث)</span>
+            <span>كافة فواتير ومعاملات النظام (المبيعات والكاش)</span>
           </button>
         </div>
 
@@ -339,7 +357,7 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
                 <th className="p-3">الكاش النظامي</th>
                 <th className="p-3">الكاش الفعلي</th>
                 <th className="p-3">العجز / الزيادة</th>
-                <th className="p-3 text-center">فواتير الوردية</th>
+                <th className="p-3 text-center">فواتير ومعاملات الوردية</th>
                 <th className="p-3 text-center">تقرير التقفيل</th>
               </tr>
             </thead>
@@ -392,10 +410,10 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
                         })
                       }
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs transition cursor-pointer border border-blue-200/80 shadow-2xs active:scale-95"
-                      title="استعراض فواتير ومرتجعات هذه الوردية"
+                      title="استعراض فواتير ومعاملات كاش ومرتجعات هذه الوردية"
                     >
                       <Receipt className="h-3.5 w-3.5" />
-                      <span>فواتير الوردية</span>
+                      <span>فواتير ومعاملات</span>
                     </button>
                   </td>
                   <td className="p-3 text-center">
