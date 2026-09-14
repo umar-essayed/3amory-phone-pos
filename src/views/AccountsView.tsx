@@ -127,7 +127,7 @@ export const AccountsView: React.FC = () => {
     (s) => s.name.includes(searchQuery) || s.phone.includes(searchQuery)
   );
 
-  const ModalForm = () => (
+  const renderModalForm = () => (
     <form onSubmit={handleAdd} className="p-6 space-y-4">
       <div>
         <label className="block text-xs font-bold text-slate-700 mb-1.5">الاسم الكامل *</label>
@@ -494,7 +494,7 @@ export const AccountsView: React.FC = () => {
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <ModalForm />
+            {renderModalForm()}
           </div>
         </div>
       )}

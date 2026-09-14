@@ -82,6 +82,14 @@ export interface Phone {
   createdAt: string;
 }
 
+export interface ProductVariant {
+  id: string;
+  name: string; // e.g. "أسود", "أزرق", "Type-C", "128GB"
+  skuOrBarcode?: string;
+  stockQuantity: number;
+  additionalPrice?: number;
+}
+
 export interface Accessory {
   id: string;
   name: string;
@@ -93,6 +101,8 @@ export interface Accessory {
   stockQuantity: number;
   minStockAlert: number;
   location?: string;
+  variants?: ProductVariant[];
+  hasVariants?: boolean;
   createdAt: string;
 }
 
@@ -139,6 +149,8 @@ export interface InvoiceItem {
   totalPrice: number;
   costPrice: number;
   returnedQuantity?: number;
+  variantId?: string;
+  variantName?: string;
 }
 
 export interface SaleInvoice {

@@ -20,12 +20,13 @@ import {
   Percent,
   Receipt,
   RotateCcw,
+  X,
 } from 'lucide-react';
 import { db } from '../db';
 import { triggerPrint } from '../services/printer';
 import { useModal } from '../context/ModalContext';
 import { ShiftInvoicesModal } from '../components/ShiftInvoicesModal';
-import type { InvoiceItem, SaleInvoice, StoreSettings, Phone, Accessory } from '../types';
+import type { InvoiceItem, SaleInvoice, StoreSettings, Phone, Accessory, ProductVariant } from '../types';
 
 export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> = ({
   activeShiftId,
@@ -46,6 +47,7 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
   const [selectedWalletId, setSelectedWalletId] = useState<string>('');
   const [heldOrders, setHeldOrders] = useState<{ id: string; name: string; items: InvoiceItem[] }[]>([]);
   const [showShiftInvoicesModal, setShowShiftInvoicesModal] = useState(false);
+  const [variantPickerAcc, setVariantPickerAcc] = useState<Accessory | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   // Focus search input on mount
@@ -105,8 +107,16 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
     setCartItems([...cartItems, newItem]);
   };
 
+  const handleAccessoryClick = (acc: Accessory) => {
+    if (acc.hasVariants && acc.variants && acc.variants.length > 0) {
+      setVariantPickerAcc(acc);
+    } else {
+      addAccessoryToCart(acc);
+    }
+  };
+
   const addAccessoryToCart = (acc: Accessory) => {
-    const existingIndex = cartItems.findIndex((i) => i.itemId === acc.id);
+    const existingIndex = cartItems.findIndex((i) => i.itemId === acc.id && !i.variantId);
     if (existingIndex > -1) {
       const updated = [...cartItems];
       updated[existingIndex].quantity += 1;
@@ -124,6 +134,34 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
       };
       setCartItems([...cartItems, newItem]);
     }
+  };
+
+  const addVariantToCart = (acc: Accessory, variant: ProductVariant) => {
+    const unitPrice = acc.sellPriceRetail + (variant.additionalPrice || 0);
+    const existingIndex = cartItems.findIndex(
+      (i) => i.itemId === acc.id && i.variantId === variant.id
+    );
+
+    if (existingIndex > -1) {
+      const updated = [...cartItems];
+      updated[existingIndex].quantity += 1;
+      updated[existingIndex].totalPrice = updated[existingIndex].quantity * updated[existingIndex].unitPrice;
+      setCartItems(updated);
+    } else {
+      const newItem: InvoiceItem = {
+        itemId: acc.id,
+        type: 'accessory',
+        name: `${acc.name} (${variant.name})`,
+        quantity: 1,
+        unitPrice,
+        totalPrice: unitPrice,
+        costPrice: acc.costPrice,
+        variantId: variant.id,
+        variantName: variant.name,
+      };
+      setCartItems([...cartItems, newItem]);
+    }
+    setVariantPickerAcc(null);
   };
 
   const updateQuantity = (index: number, delta: number) => {
@@ -200,8 +238,17 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
         } else if (item.type === 'accessory') {
           const acc = await db.accessories.get(item.itemId);
           if (acc) {
+            let updatedVariants = acc.variants;
+            if (item.variantId && updatedVariants) {
+              updatedVariants = updatedVariants.map((v) =>
+                v.id === item.variantId
+                  ? { ...v, stockQuantity: Math.max(0, v.stockQuantity - item.quantity) }
+                  : v
+              );
+            }
             await db.accessories.update(item.itemId, {
               stockQuantity: Math.max(0, acc.stockQuantity - item.quantity),
+              variants: updatedVariants,
             });
           }
         }
@@ -361,13 +408,20 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
               {filteredAccessories.map((acc) => (
                 <div
                   key={acc.id}
-                  onClick={() => addAccessoryToCart(acc)}
+                  onClick={() => handleAccessoryClick(acc)}
                   className="p-3 rounded-xl border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/30 transition cursor-pointer flex flex-col justify-between group"
                 >
                   <div>
-                    <span className="text-[9px] font-semibold text-slate-400 block truncate">
-                      {acc.category}
-                    </span>
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-[9px] font-semibold text-slate-400 block truncate">
+                        {acc.category}
+                      </span>
+                      {acc.hasVariants && acc.variants && acc.variants.length > 0 && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-purple-100 text-purple-800 font-bold shrink-0">
+                          {acc.variants.length} خيارات
+                        </span>
+                      )}
+                    </div>
                     <div className="font-bold text-xs text-slate-900 group-hover:text-indigo-700 line-clamp-2 mt-0.5">
                       {acc.name}
                     </div>
@@ -644,6 +698,63 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
           </button>
         </div>
       </div>
+
+      {/* Modal: Variant Picker for POS */}
+      {variantPickerAcc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="w-full max-w-sm rounded-3xl bg-white shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between bg-gradient-to-r from-purple-600 to-indigo-600 px-5 py-4 text-white">
+              <div>
+                <h3 className="font-bold text-sm">اختر المتغير (اللون / الموديل)</h3>
+                <p className="text-xs text-white/80 line-clamp-1">{variantPickerAcc.name}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setVariantPickerAcc(null)}
+                className="p-1.5 rounded-xl bg-white/20 hover:bg-white/30 transition cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-2 max-h-80 overflow-y-auto">
+              {variantPickerAcc.variants && variantPickerAcc.variants.length > 0 ? (
+                variantPickerAcc.variants.map((v) => {
+                  const isAvailable = v.stockQuantity > 0;
+                  const finalPrice = variantPickerAcc.sellPriceRetail + (v.additionalPrice || 0);
+
+                  return (
+                    <button
+                      key={v.id}
+                      type="button"
+                      disabled={!isAvailable}
+                      onClick={() => addVariantToCart(variantPickerAcc, v)}
+                      className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition text-xs font-bold cursor-pointer ${
+                        isAvailable
+                          ? 'border-slate-200 hover:border-purple-500 hover:bg-purple-50/50 text-slate-800'
+                          : 'border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed opacity-60'
+                      }`}
+                    >
+                      <div className="text-right">
+                        <span className="text-sm font-black block">{v.name}</span>
+                        <span className="text-[10px] font-mono text-slate-400">
+                          {isAvailable ? `متبقي بالمخزن: ${v.stockQuantity} قطعة` : 'غير متوفر (نفد)'}
+                        </span>
+                      </div>
+
+                      <div className="text-left font-mono font-black text-sm text-purple-700">
+                        {finalPrice.toLocaleString()} {settings?.currency || 'ج'}
+                      </div>
+                    </button>
+                  );
+                })
+              ) : (
+                <p className="text-xs text-slate-400 text-center py-4">لا توجد متغيرات محددة لهذا الصنف</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Shift Invoices & Returns Inspector Modal */}
       {showShiftInvoicesModal && (

@@ -478,7 +478,75 @@ async function runFullSystemTest() {
   assert(healedShift?.closingCashSystem === 850, 'إصلاح ومعالجة أي رصيد سالب تلقائياً وإعادته للرصيد الصافي الصحيح (850 ج)');
   console.log('    ✓ فواتير ومعاملات الوردية وصافي أرباح الكاش وتدقيق الدرج تعمل بنجاح 100%.\n');
 
+  // ─────────────────────────────────────────────────────────────────
+  // TEST 9: ACCESSORY VARIANTS, STOCK ALERTS & QUICK REPLENISHMENT
+  // ─────────────────────────────────────────────────────────────────
+  console.log('📦 اختبار 9: متغيرات المنتجات (Variants)، تنبيهات النواقص، وتزويد المخزون الفوري');
+  const testAccVariantId = `acc_var_${Date.now()}`;
+  const initialAcc: Accessory = {
+    id: testAccVariantId,
+    name: 'جراب سيليكون أصلي ماج سيف',
+    category: 'جرابات',
+    barcode: '6221122334455',
+    costPrice: 80,
+    sellPriceRetail: 180,
+    sellPriceWholesale: 140,
+    stockQuantity: 15,
+    minStockAlert: 10,
+    hasVariants: true,
+    variants: [
+      { id: 'v_black', name: 'أسود', stockQuantity: 5 },
+      { id: 'v_blue', name: 'كحلي', stockQuantity: 6 },
+      { id: 'v_clear', name: 'شفاف', stockQuantity: 4 },
+    ],
+    createdAt: new Date().toISOString(),
+  };
+  await db.accessories.put(initialAcc);
+
+  // Verify variant stock sum
+  const savedAcc = await db.accessories.get(testAccVariantId);
+  assert(savedAcc?.hasVariants === true, 'تفعيل خاصية المتغيرات للمنتج بنجاح');
+  assert(savedAcc?.variants?.length === 3, 'تسجيل كافة متغيرات المنتج (أسود، كحلي، شفاف)');
+  const totalCalculated = savedAcc?.variants?.reduce((sum, v) => sum + v.stockQuantity, 0);
+  assert(totalCalculated === 15 && savedAcc?.stockQuantity === 15, 'تطابق إجمالي رصيد المخزون مع مجموع المتغيرات (5 + 6 + 4 = 15)');
+
+  // Test Quick Stock Replenish (+20 to black variant)
+  const addQty = 20;
+  const updatedVariants = (savedAcc?.variants || []).map((v) =>
+    v.id === 'v_black' ? { ...v, stockQuantity: v.stockQuantity + addQty } : v
+  );
+  const newTotalStock = updatedVariants.reduce((s, v) => s + v.stockQuantity, 0);
+  await db.accessories.update(testAccVariantId, {
+    variants: updatedVariants,
+    stockQuantity: newTotalStock,
+  });
+
+  const replenishedAcc = await db.accessories.get(testAccVariantId);
+  assert(replenishedAcc?.stockQuantity === 35, 'تزويد المخزون مباشرة بنجاح دون الحاجة لإنشاء الصنف من جديد (15 + 20 = 35)');
+  assert(replenishedAcc?.variants?.find((v) => v.id === 'v_black')?.stockQuantity === 25, 'تزويد رصيد المتغير المحدد (الأسود) من 5 إلى 25 قطعة');
+
+  // Test Selling Variant in POS: deduct 2 black items
+  const soldVariantQty = 2;
+  const afterSaleVariants = (replenishedAcc?.variants || []).map((v) =>
+    v.id === 'v_black' ? { ...v, stockQuantity: v.stockQuantity - soldVariantQty } : v
+  );
+  await db.accessories.update(testAccVariantId, {
+    variants: afterSaleVariants,
+    stockQuantity: replenishedAcc!.stockQuantity - soldVariantQty,
+  });
+
+  const afterSaleAcc = await db.accessories.get(testAccVariantId);
+  assert(afterSaleAcc?.stockQuantity === 33, 'خصم كمية البيع من إجمالي مخزون الصنف (35 - 2 = 33)');
+  assert(afterSaleAcc?.variants?.find((v) => v.id === 'v_black')?.stockQuantity === 23, 'خصم كمية البيع من رصيد المتغير المباع حصراً');
+
+  // Test Low Stock Alert logic: setting stock below minStockAlert
+  await db.accessories.update(testAccVariantId, { stockQuantity: 4, minStockAlert: 10 });
+  const lowStockAcc = await db.accessories.get(testAccVariantId);
+  assert(lowStockAcc!.stockQuantity <= lowStockAcc!.minStockAlert, 'اكتشاف وتنبيه الصنف الناقص عند وصوله لحد التنبيه (4 <= 10)');
+  console.log('    ✓ المتغيرات، وتزويد المخزون، وتنبيهات النواقص تعمل بنجاح 100%.\n');
+
   // Clean test artifacts
+  await db.accessories.delete(testAccVariantId);
   await db.shifts.delete(shiftId);
   await db.shifts.delete(testShift2Id);
   await db.invoices.delete(invoiceId);

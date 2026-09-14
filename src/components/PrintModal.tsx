@@ -18,42 +18,74 @@ export const PrintModal: React.FC = () => {
     };
   }, []);
 
+  const [viewMode, setViewMode] = useState<'expanded' | 'roll'>('expanded');
+
   if (!activePrint) return null;
 
   const { type, invoice, walletTx, repair, phone, shift, accessory, settings } = activePrint;
-  const paperWidth = settings.paperSize === '58mm' ? 'max-w-[58mm]' : 'max-w-[80mm]';
+  const rollWidth = settings.paperSize === '58mm' ? 'max-w-[58mm]' : 'max-w-[80mm]';
+  const previewWidth =
+    type === 'used_phone_contract'
+      ? 'max-w-2xl'
+      : viewMode === 'roll'
+      ? rollWidth
+      : 'max-w-md sm:max-w-lg';
 
   const handleExecutePrint = () => {
     window.print();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs no-print">
-      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-2xl bg-white shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs no-print">
+      <div className="flex max-h-[92vh] w-full max-w-3xl flex-col rounded-3xl bg-white shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-3.5 gap-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-md">
               <Printer className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-slate-800">معاينة المستند والطباعة</h3>
-              <p className="text-xs text-slate-500">
-                حجم الورق المعتمد: {settings.paperSize} | المحل: {settings.storeName}
+              <h3 className="text-base sm:text-lg font-black text-slate-900">معاينة المستند والطباعة</h3>
+              <p className="text-xs text-slate-500 font-semibold">
+                طابعة: {settings.paperSize} | المحل: {settings.storeName}
               </p>
             </div>
           </div>
+
           <div className="flex items-center gap-2">
+            {type !== 'used_phone_contract' && (
+              <div className="flex items-center bg-slate-200/80 p-1 rounded-xl text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('expanded')}
+                  className={`px-3 py-1 rounded-lg transition cursor-pointer ${
+                    viewMode === 'expanded' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  عرض متسع
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('roll')}
+                  className={`px-3 py-1 rounded-lg transition cursor-pointer ${
+                    viewMode === 'roll' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  حجم الرول ({settings.paperSize})
+                </button>
+              </div>
+            )}
+
             <button
               onClick={handleExecutePrint}
-              className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 active:scale-95"
+              className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs sm:text-sm font-bold text-white shadow-md transition hover:bg-blue-700 active:scale-95 cursor-pointer"
             >
               <Printer className="h-4 w-4" />
               <span>طباعة فورية</span>
             </button>
             <button
               onClick={() => setActivePrint(null)}
-              className="rounded-xl p-2 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+              className="rounded-xl p-2 text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition cursor-pointer"
             >
               <X className="h-5 w-5" />
             </button>
@@ -61,8 +93,8 @@ export const PrintModal: React.FC = () => {
         </div>
 
         {/* Preview Scrollable Body */}
-        <div className="flex-1 overflow-y-auto bg-slate-200/60 p-6 flex justify-center">
-          <div className={`print-area w-full ${type === 'used_phone_contract' ? 'max-w-xl' : paperWidth} rounded-xl bg-white p-5 shadow-lg border border-slate-200 text-slate-900 text-sm`}>
+        <div className="flex-1 overflow-y-auto bg-slate-100 p-4 sm:p-6 flex justify-center">
+          <div className={`print-area w-full ${previewWidth} rounded-2xl bg-white p-5 sm:p-6 shadow-xl border border-slate-200 text-slate-900 text-sm transition-all duration-200 overflow-hidden box-border`}>
             
             {/* === RECEIPT HEADER (STORE BRANDING) === */}
             <div className="text-center pb-4 border-b border-dashed border-slate-300">
@@ -113,23 +145,23 @@ export const PrintModal: React.FC = () => {
                 <table className="w-full text-xs text-right border-collapse mt-2">
                   <thead>
                     <tr className="border-b border-slate-300 font-bold text-slate-700">
-                      <th className="py-1">الصنف</th>
-                      <th className="py-1 text-center">الكمية</th>
-                      <th className="py-1 text-left">الإجمالي</th>
+                      <th className="py-1.5 pr-1 text-right">الصنف</th>
+                      <th className="py-1.5 px-2 text-center w-14">الكمية</th>
+                      <th className="py-1.5 pl-1 text-left w-24">الإجمالي</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {invoice.items.map((item, idx) => (
-                      <tr key={idx} className="py-1.5">
-                        <td className="py-1">
-                          <div className="font-semibold">{item.name}</div>
+                      <tr key={idx}>
+                        <td className="py-2 pr-1">
+                          <div className="font-semibold text-slate-900 break-words">{item.name}</div>
                           {settings.showImeiOnReceipt && item.imei && (
-                            <div className="text-[10px] font-mono text-slate-500">IMEI: {item.imei}</div>
+                            <div className="text-[10px] font-mono text-slate-500 break-all">IMEI: {item.imei}</div>
                           )}
                           <div className="text-[10px] text-slate-400">{item.unitPrice.toLocaleString()} {settings.currency}</div>
                         </td>
-                        <td className="py-1 text-center font-mono">{item.quantity}</td>
-                        <td className="py-1 text-left font-bold font-mono">
+                        <td className="py-2 px-2 text-center font-mono font-bold text-slate-800">{item.quantity}</td>
+                        <td className="py-2 pl-1 text-left font-bold font-mono text-slate-900 whitespace-nowrap">
                           {item.totalPrice.toLocaleString()} {settings.currency}
                         </td>
                       </tr>
