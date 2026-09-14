@@ -373,6 +373,83 @@ export const PrintModal: React.FC = () => {
               </div>
             )}
 
+            {/* === TYPE: RETURN RECEIPT (مرتجع مبيعات واسترداد) === */}
+            {type === 'return_receipt' && invoice && (
+              <div className="pt-3 space-y-3">
+                <div className="bg-amber-600 text-white p-2.5 text-center font-black rounded-xl text-xs flex flex-col items-center justify-center">
+                  <span>إشعار مرتجع مبيعات واسترداد نقدية</span>
+                  <span className="text-[10px] font-normal opacity-90">RETURN VOUCHER</span>
+                </div>
+
+                <div className="flex justify-between text-xs border-b pb-2 text-slate-600">
+                  <span>رقم الفاتورة الأصلية: <strong className="text-slate-900 font-mono">#{invoice.invoiceNumber}</strong></span>
+                  <span>{new Date().toLocaleString('ar-EG', { hour: '2-digit', minute: '2-digit', dateStyle: 'short' })}</span>
+                </div>
+
+                {invoice.customerName && (
+                  <div className="text-xs">
+                    <span className="text-slate-500">العميل المسترد:</span> <strong>{invoice.customerName}</strong> {invoice.customerPhone && `(${invoice.customerPhone})`}
+                  </div>
+                )}
+                <div className="text-xs text-slate-500">الكاشير: {invoice.cashierName}</div>
+
+                {/* Returned Items Table */}
+                <table className="w-full text-xs text-right border-collapse mt-2">
+                  <thead>
+                    <tr className="border-b border-slate-300 font-bold text-slate-700">
+                      <th className="py-1">الصنف المسترجع</th>
+                      <th className="py-1 text-center">الكمية</th>
+                      <th className="py-1 text-left">المبلغ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {invoice.items.map((item, idx) => (
+                      <tr key={idx} className="py-1.5">
+                        <td className="py-1">
+                          <div className="font-semibold">{item.name}</div>
+                          {item.imei && (
+                            <div className="text-[10px] font-mono text-slate-500">IMEI: {item.imei}</div>
+                          )}
+                          <div className="text-[10px] text-slate-400">{item.unitPrice.toLocaleString()} {settings.currency}</div>
+                        </td>
+                        <td className="py-1 text-center font-mono font-bold text-amber-700">{item.quantity}</td>
+                        <td className="py-1 text-left font-bold font-mono">
+                          {item.totalPrice.toLocaleString()} {settings.currency}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {/* Refund Totals & Reason */}
+                <div className="border-t border-dashed border-slate-300 pt-2 space-y-1 text-xs">
+                  <div className="flex justify-between text-base font-black text-amber-900 border-t-2 border-amber-600 pt-1.5">
+                    <span>إجمالي المبلغ المسترد للعميل:</span>
+                    <span className="font-mono font-black">
+                      {(invoice.returnedAmount || invoice.total).toLocaleString()} {settings.currency}
+                    </span>
+                  </div>
+
+                  {invoice.returnReason && (
+                    <div className="text-[11px] text-slate-600 pt-1">
+                      <span>سبب المرتجع: </span>
+                      <strong className="text-slate-800">{invoice.returnReason}</strong>
+                    </div>
+                  )}
+                </div>
+
+                {/* Signatures */}
+                <div className="grid grid-cols-2 gap-4 text-center text-[10px] pt-4 border-t border-dashed border-slate-300">
+                  <div>
+                    <p className="border-b pb-6">توقيع العميل المستلم</p>
+                  </div>
+                  <div>
+                    <p className="border-b pb-6">ختم وتوقيع الكاشير</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* === RECEIPT FOOTER === */}
             {type !== 'used_phone_contract' && (
               <div className="mt-4 pt-3 border-t border-dashed border-slate-300 text-center text-[10px] text-slate-500 space-y-1">

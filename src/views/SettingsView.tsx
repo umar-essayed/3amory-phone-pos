@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { db } from '../db';
 import { triggerPrint, kickCashDrawer } from '../services/printer';
+import { syncDataToFirebase } from '../services/firebase';
 import { useModal } from '../context/ModalContext';
 import type { StoreSettings } from '../types';
 
@@ -27,6 +28,7 @@ export const SettingsView: React.FC = () => {
   const [formData, setFormData] = useState<StoreSettings | null>(null);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [activeTab, setActiveTab] = useState<'store' | 'receipt' | 'commissions' | 'backup'>('store');
+  const [simAmount, setSimAmount] = useState<number>(1000);
 
   useEffect(() => {
     if (currentSettings) {
@@ -50,11 +52,13 @@ export const SettingsView: React.FC = () => {
     }
   };
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSave = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!formData) return;
     await db.settings.put(formData);
+    syncDataToFirebase().catch(console.warn);
     setSavedSuccess(true);
-    showToast('تم حفظ إعدادات وهوية المحل بنجاح', 'success');
+    showToast('تم حفظ إعدادات وهوية وقواعد المحل وتطبيقها بنجاح!');
     setTimeout(() => setSavedSuccess(false), 3000);
   };
 
@@ -760,6 +764,114 @@ export const SettingsView: React.FC = () => {
                   <span className="text-[11px] text-slate-500 mt-1 block">أقل عمولة للعمليات الصغيرة (مثلاً 5 ج)</span>
                 </div>
               </div>
+            </div>
+
+            {/* Live Rate Simulator Box */}
+            <div className="bg-slate-50 rounded-2xl border border-slate-200 p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
+                <div>
+                  <h4 className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
+                    <Zap className="h-4 w-4 text-amber-500" />
+                    <span>محاكي فوري لحساب العمولات (Live Rate Simulator):</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    جرب كتابة أي مبلغ لتتأكد من الحسبة والنسبة قبل الحفظ
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-600">مبلغ التجربة:</span>
+                  <div className="flex items-center gap-1 bg-white border border-slate-300 rounded-xl px-2.5 py-1">
+                    <input
+                      type="number"
+                      value={simAmount}
+                      onChange={(e) => setSimAmount(parseFloat(e.target.value) || 0)}
+                      className="w-20 text-center font-mono font-bold text-xs focus:outline-none"
+                    />
+                    <span className="text-xs font-bold text-slate-400">ج.م</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 3 Sim Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                {/* 1. Cash out sim */}
+                {(() => {
+                  const perThousand = formData.commissionRules?.transferFeePerThousand ?? 10;
+                  const minFee = formData.commissionRules?.minTransferFee ?? 5;
+                  const fee = simAmount > 0 ? Math.max(minFee, Math.ceil((simAmount / 1000) * perThousand)) : 0;
+                  const pct = simAmount > 0 ? ((fee / simAmount) * 100).toFixed(1) : '0';
+                  return (
+                    <div className="p-3 bg-red-50/60 rounded-xl border border-red-200/80">
+                      <strong className="text-red-900 block mb-1">تحويل كاش للعميل</strong>
+                      <div className="flex justify-between font-mono">
+                        <span className="text-slate-500">عمولة المحل:</span>
+                        <strong className="text-red-700">{fee} ج ({pct}%)</strong>
+                      </div>
+                      <div className="flex justify-between font-mono mt-1 text-[11px]">
+                        <span className="text-slate-500">المحل يستلم:</span>
+                        <span className="font-bold text-slate-800">{simAmount + fee} ج</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 2. Cash in sim */}
+                {(() => {
+                  const perThousand = formData.commissionRules?.withdrawFeePerThousand ?? 10;
+                  const minFee = formData.commissionRules?.minWithdrawFee ?? 5;
+                  const fee = simAmount > 0 ? Math.max(minFee, Math.ceil((simAmount / 1000) * perThousand)) : 0;
+                  const pct = simAmount > 0 ? ((fee / simAmount) * 100).toFixed(1) : '0';
+                  return (
+                    <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-200/80">
+                      <strong className="text-emerald-900 block mb-1">سحب كاش من العميل</strong>
+                      <div className="flex justify-between font-mono">
+                        <span className="text-slate-500">عمولة المحل:</span>
+                        <strong className="text-emerald-700">{fee} ج ({pct}%)</strong>
+                      </div>
+                      <div className="flex justify-between font-mono mt-1 text-[11px]">
+                        <span className="text-slate-500">المحل يسلم كاش:</span>
+                        <span className="font-bold text-slate-800">{simAmount - fee} ج</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 3. Instapay sim */}
+                {(() => {
+                  const perThousand = formData.commissionRules?.instapayFeePerThousand ?? 5;
+                  const minFee = formData.commissionRules?.minInstapayFee ?? 5;
+                  const fee = simAmount > 0 ? Math.max(minFee, Math.ceil((simAmount / 1000) * perThousand)) : 0;
+                  const pct = simAmount > 0 ? ((fee / simAmount) * 100).toFixed(1) : '0';
+                  return (
+                    <div className="p-3 bg-purple-50/60 rounded-xl border border-purple-200/80">
+                      <strong className="text-purple-900 block mb-1">تحويل إنستاباي</strong>
+                      <div className="flex justify-between font-mono">
+                        <span className="text-slate-500">عمولة المحل:</span>
+                        <strong className="text-purple-700">{fee} ج ({pct}%)</strong>
+                      </div>
+                      <div className="flex justify-between font-mono mt-1 text-[11px]">
+                        <span className="text-slate-500">المحل يستلم:</span>
+                        <span className="font-bold text-slate-800">{simAmount + fee} ج</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+
+            {/* Bottom Save Action Button */}
+            <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <span className="text-xs text-slate-500 font-medium">
+                يتم تطبيق هذه القواعد تلقائياً في شاشات فودافون كاش ومحافظ المحل وتُزامن سحابياً.
+              </span>
+              <button
+                type="submit"
+                className="w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white px-6 py-3 font-bold text-xs shadow-md transition cursor-pointer"
+              >
+                <Save className="h-4 w-4" />
+                <span>حفظ وتطبيق قواعد العمولات الآن</span>
+              </button>
             </div>
           </form>
         )}

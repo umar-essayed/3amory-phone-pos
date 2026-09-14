@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   Wallet,
@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { db } from '../db';
 import { triggerPrint } from '../services/printer';
+import { syncDataToFirebase } from '../services/firebase';
 import { useModal } from '../context/ModalContext';
 import type { StoreWallet, WalletTransaction } from '../types';
 
@@ -49,6 +50,11 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
   const [showOptionalFields, setShowOptionalFields] = useState<boolean>(false);
   const [customerName, setCustomerName] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
+
+  // Quick Rate Modal
+  const [showQuickRateModal, setShowQuickRateModal] = useState<boolean>(false);
+  const [quickRatePerThousand, setQuickRatePerThousand] = useState<string>('10');
+  const [quickMinFee, setQuickMinFee] = useState<string>('5');
 
   // Modals
   const [showNewWalletModal, setShowNewWalletModal] = useState<boolean>(false);
@@ -89,6 +95,84 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
     const calculated = Math.ceil((val / 1000) * feePerThousand);
     return Math.max(minFee, calculated);
   };
+
+  // Active rate rule for current transaction type
+  const activeRateRule = useMemo(() => {
+    const rules = settings?.commissionRules;
+    if (txType === 'cash_out_to_customer') {
+      return {
+        label: 'تحويل كاش للعميل (المحل يحول)',
+        feePerThousand: rules?.transferFeePerThousand ?? 10,
+        minFee: rules?.minTransferFee ?? 5,
+      };
+    }
+    if (txType === 'cash_in_from_customer') {
+      return {
+        label: 'سحب كاش من العميل (العميل يحول)',
+        feePerThousand: rules?.withdrawFeePerThousand ?? 10,
+        minFee: rules?.minWithdrawFee ?? 5,
+      };
+    }
+    if (txType === 'instapay_transfer') {
+      return {
+        label: 'تحويل إنستاباي',
+        feePerThousand: rules?.instapayFeePerThousand ?? 5,
+        minFee: rules?.minInstapayFee ?? 5,
+      };
+    }
+    return null;
+  }, [settings, txType]);
+
+  // Open Quick Rate Modal
+  const handleOpenQuickRate = () => {
+    if (activeRateRule) {
+      setQuickRatePerThousand(activeRateRule.feePerThousand.toString());
+      setQuickMinFee(activeRateRule.minFee.toString());
+      setShowQuickRateModal(true);
+    }
+  };
+
+  // Save Quick Rate
+  const handleSaveQuickRate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!settings) return;
+    const currentRules = settings.commissionRules || {
+      transferFeePerThousand: 10,
+      minTransferFee: 5,
+      withdrawFeePerThousand: 10,
+      minWithdrawFee: 5,
+      instapayFeePerThousand: 5,
+      minInstapayFee: 5,
+    };
+
+    const updatedRules = { ...currentRules };
+    const numRate = parseFloat(quickRatePerThousand) || 0;
+    const numMin = parseFloat(quickMinFee) || 0;
+
+    if (txType === 'cash_out_to_customer') {
+      updatedRules.transferFeePerThousand = numRate;
+      updatedRules.minTransferFee = numMin;
+    } else if (txType === 'cash_in_from_customer') {
+      updatedRules.withdrawFeePerThousand = numRate;
+      updatedRules.minWithdrawFee = numMin;
+    } else if (txType === 'instapay_transfer') {
+      updatedRules.instapayFeePerThousand = numRate;
+      updatedRules.minInstapayFee = numMin;
+    }
+
+    await db.settings.update(1, { commissionRules: updatedRules });
+    syncDataToFirebase().catch(console.warn);
+    setShowQuickRateModal(false);
+    showToast('تم تحديث وحفظ نسبة وقواعد العمولة بنجاح!');
+  };
+
+  // Auto-update commission whenever settings, txType or amount change
+  useEffect(() => {
+    if (!isCustomCommission && amount) {
+      const num = parseFloat(amount) || 0;
+      setCommission(calculateDefaultCommission(num, txType).toString());
+    }
+  }, [settings, txType, isCustomCommission]);
 
   const handleAmountChange = (valStr: string) => {
     setAmount(valStr);
@@ -260,7 +344,7 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
       {/* ═══════════════════════════════════════════════════════════════
           ULTRA-FAST ACTION BOX: 3 STEPS (TYPE -> AMOUNT -> CONFIRM)
       ═══════════════════════════════════════════════════════════════ */}
-      <div className="bg-white rounded-3xl shadow-md border-2 border-blue-500/30 p-5 sm:p-7 overflow-hidden relative">
+      <div className="bg-white rounded-3xl shadow-xs border border-slate-200 p-5 sm:p-7 overflow-hidden relative">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 mb-5 border-b border-slate-100">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-2xl bg-gradient-to-tr from-red-600 to-rose-500 text-white flex items-center justify-center shadow-md">
@@ -282,7 +366,7 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
             <select
               value={selectedWalletId}
               onChange={(e) => setSelectedWalletId(e.target.value)}
-              className="bg-white font-bold text-xs text-slate-800 py-1.5 px-3 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-500 cursor-pointer shadow-xs"
+              className="bg-white font-bold text-xs text-slate-800 py-1.5 px-3 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-400 cursor-pointer shadow-xs"
             >
               {wallets.map((w) => (
                 <option key={w.id} value={w.id}>
@@ -303,9 +387,9 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
               <button
                 type="button"
                 onClick={() => handleTypeChange('cash_in_from_customer')}
-                className={`p-3.5 rounded-2xl font-bold text-xs flex flex-col items-center gap-1.5 transition active:scale-95 cursor-pointer border-2 ${
+                className={`p-3.5 rounded-2xl font-bold text-xs flex flex-col items-center gap-1.5 transition active:scale-95 cursor-pointer border ${
                   txType === 'cash_in_from_customer'
-                    ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-600/20'
+                    ? 'bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-600/15'
                     : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-emerald-300'
                 }`}
               >
@@ -317,9 +401,9 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
               <button
                 type="button"
                 onClick={() => handleTypeChange('cash_out_to_customer')}
-                className={`p-3.5 rounded-2xl font-bold text-xs flex flex-col items-center gap-1.5 transition active:scale-95 cursor-pointer border-2 ${
+                className={`p-3.5 rounded-2xl font-bold text-xs flex flex-col items-center gap-1.5 transition active:scale-95 cursor-pointer border ${
                   txType === 'cash_out_to_customer'
-                    ? 'bg-red-600 border-red-600 text-white shadow-lg shadow-red-600/20'
+                    ? 'bg-red-600 border-red-600 text-white shadow-md shadow-red-600/15'
                     : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-red-300'
                 }`}
               >
@@ -331,9 +415,9 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
               <button
                 type="button"
                 onClick={() => handleTypeChange('instapay_transfer')}
-                className={`p-3.5 rounded-2xl font-bold text-xs flex flex-col items-center gap-1.5 transition active:scale-95 cursor-pointer border-2 ${
+                className={`p-3.5 rounded-2xl font-bold text-xs flex flex-col items-center gap-1.5 transition active:scale-95 cursor-pointer border ${
                   txType === 'instapay_transfer'
-                    ? 'bg-purple-700 border-purple-700 text-white shadow-lg shadow-purple-700/20'
+                    ? 'bg-purple-700 border-purple-700 text-white shadow-md shadow-purple-700/15'
                     : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-purple-300'
                 }`}
               >
@@ -345,9 +429,9 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
               <button
                 type="button"
                 onClick={() => handleTypeChange('internal_transfer')}
-                className={`p-3.5 rounded-2xl font-bold text-xs flex flex-col items-center gap-1.5 transition active:scale-95 cursor-pointer border-2 ${
+                className={`p-3.5 rounded-2xl font-bold text-xs flex flex-col items-center gap-1.5 transition active:scale-95 cursor-pointer border ${
                   txType === 'internal_transfer'
-                    ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-600/20'
+                    ? 'bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-600/15'
                     : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-blue-300'
                 }`}
               >
@@ -360,7 +444,7 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
 
           {/* Internal Transfer Target Wallet Selector */}
           {txType === 'internal_transfer' && (
-            <div className="bg-blue-50 p-4 rounded-2xl border border-blue-200">
+            <div className="bg-blue-50/70 p-4 rounded-2xl border border-blue-200/80">
               <label className="block text-xs font-bold text-blue-900 mb-1.5">
                 المحفظة المحول إليها (المستلمة):
               </label>
@@ -382,12 +466,12 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
             </div>
           )}
 
-          {/* STEP 2: AMOUNT & COMMISSION (LARGE CENTERED INPUT) */}
+          {/* STEP 2: AMOUNT & COMMISSION (SMOOTH ELEGANT INPUTS) */}
           <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
             {/* Amount Input */}
-            <div className="md:col-span-8 bg-slate-50 p-4 rounded-2xl border-2 border-slate-200 focus-within:border-blue-600 focus-within:bg-white transition">
+            <div className="md:col-span-8 bg-slate-50/60 p-4 sm:p-5 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-blue-400 focus-within:ring-4 focus-within:ring-blue-500/10 transition-all duration-200">
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-black text-slate-700">
+                <label className="text-xs font-black text-slate-600">
                   2. المبلغ المطلوب تحويله / سحبه:
                 </label>
                 {numAmount > 0 && (
@@ -405,19 +489,19 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
                   onChange={(e) => handleAmountChange(e.target.value)}
                   placeholder="0"
                   autoFocus
-                  className="w-full bg-transparent text-3xl sm:text-4xl font-black font-mono text-slate-900 focus:outline-none tracking-tight"
+                  className="w-full bg-transparent text-3xl sm:text-4xl font-black font-mono text-slate-900 border-none outline-none focus:outline-none focus:ring-0 p-0 tracking-tight"
                 />
                 <span className="text-lg font-black text-slate-400 shrink-0">ج.م</span>
               </div>
 
               {/* Quick Amount Chips */}
-              <div className="flex flex-wrap items-center gap-1.5 mt-3 pt-3 border-t border-slate-200/80">
+              <div className="flex flex-wrap items-center gap-1.5 mt-3 pt-3 border-t border-slate-200/60">
                 {[50, 100, 200, 300, 500, 1000, 2000, 3000, 5000].map((val) => (
                   <button
                     key={val}
                     type="button"
                     onClick={() => setQuickAmount(val)}
-                    className="px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-800 font-mono font-bold text-xs hover:border-blue-500 hover:text-blue-600 active:scale-95 transition cursor-pointer shadow-xs"
+                    className="px-3 py-1.5 rounded-xl bg-white border border-slate-200/80 text-slate-700 font-mono font-bold text-xs hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/50 active:scale-95 transition-all duration-150 cursor-pointer shadow-xs"
                   >
                     {val} ج
                   </button>
@@ -426,22 +510,48 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
             </div>
 
             {/* Commission Box */}
-            <div className="md:col-span-4 bg-emerald-50/70 p-4 rounded-2xl border-2 border-emerald-200/80 flex flex-col justify-between h-full">
+            <div className="md:col-span-4 bg-emerald-50/40 p-4 sm:p-5 rounded-2xl border border-emerald-200/70 flex flex-col justify-between h-full transition-all duration-200">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-black text-emerald-900 flex items-center gap-1">
                   <Percent className="h-3.5 w-3.5 text-emerald-600" />
                   <span>عمولة المحل (صافي ربح):</span>
                 </label>
-                <button
-                  type="button"
-                  onClick={() => setIsCustomCommission(!isCustomCommission)}
-                  className="text-[10px] font-bold text-emerald-700 underline cursor-pointer"
-                >
-                  {isCustomCommission ? 'تلقائي' : 'تعديل'}
-                </button>
+                <div className="flex items-center gap-1.5">
+                  {activeRateRule && (
+                    <button
+                      type="button"
+                      onClick={handleOpenQuickRate}
+                      className="text-[10px] font-bold text-blue-700 bg-blue-100/70 hover:bg-blue-200/70 px-2 py-0.5 rounded-lg transition cursor-pointer"
+                      title="تعديل نسبة وقواعد العمولة مباشرة"
+                    >
+                      تعديل النسبة
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setIsCustomCommission(!isCustomCommission)}
+                    className="text-[10px] font-bold text-emerald-700 underline cursor-pointer"
+                  >
+                    {isCustomCommission ? 'تلقائي' : 'يدوي'}
+                  </button>
+                </div>
               </div>
 
-              <div className="flex items-baseline gap-1 my-1">
+              {/* Active Rate Rule & Percentage Badge */}
+              {activeRateRule && (
+                <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
+                  <span className="px-2 py-0.5 rounded-md bg-emerald-100/90 text-emerald-900 font-bold font-mono">
+                    النسبة: {activeRateRule.feePerThousand} ج لكل ألف (أدنى {activeRateRule.minFee} ج)
+                  </span>
+                  {numAmount > 0 && numComm > 0 && (
+                    <span className="px-1.5 py-0.5 rounded-md bg-white border border-emerald-300 text-emerald-800 font-black font-mono">
+                      {((numComm / numAmount) * 100).toFixed(1)}% عمولة
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <div className="flex items-baseline gap-1 my-2">
                 <input
                   type="number"
                   step="any"
@@ -450,7 +560,7 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
                     setIsCustomCommission(true);
                     setCommission(e.target.value);
                   }}
-                  className="w-24 bg-white border border-emerald-300 rounded-xl px-2.5 py-1 text-xl font-black font-mono text-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-24 bg-white border border-emerald-300/80 rounded-xl px-2.5 py-1 text-xl font-black font-mono text-emerald-800 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
                 />
                 <span className="text-xs font-bold text-emerald-700">ج.م</span>
               </div>
@@ -858,6 +968,111 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
                   className="flex-1 rounded-xl bg-blue-600 hover:bg-blue-700 text-white py-2.5 text-xs font-bold shadow-md cursor-pointer"
                 >
                   حفظ التعديل
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Quick Rate & Commission Editor */}
+      {showQuickRateModal && activeRateRule && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="h-10 w-10 rounded-xl bg-blue-600/10 text-blue-600 flex items-center justify-center">
+                  <Percent className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-900">
+                    تعديل نسبة وقواعد العمولة
+                  </h3>
+                  <span className="text-xs text-slate-500 font-semibold">{activeRateRule.label}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowQuickRateModal(false)}
+                className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 transition cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveQuickRate} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  العمولة لكل 1000 جنيه (ج.م):
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="any"
+                    value={quickRatePerThousand}
+                    onChange={(e) => setQuickRatePerThousand(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 p-2.5 text-base font-mono font-black text-slate-900 focus:border-blue-600 focus:outline-none"
+                    required
+                    autoFocus
+                  />
+                  <span className="absolute left-3 top-2.5 text-xs font-bold text-slate-400">ج / 1000</span>
+                </div>
+                <span className="text-[11px] text-slate-400 mt-1 block">مثلاً: 10 أو 15 أو 20 جنيه لكل ألف</span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  الحد الأدنى للعمولة (أقل ربح للعملية):
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="any"
+                    value={quickMinFee}
+                    onChange={(e) => setQuickMinFee(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 p-2.5 text-base font-mono font-black text-slate-900 focus:border-blue-600 focus:outline-none"
+                    required
+                  />
+                  <span className="absolute left-3 top-2.5 text-xs font-bold text-slate-400">ج.م كحد أدنى</span>
+                </div>
+                <span className="text-[11px] text-slate-400 mt-1 block">يطبق على المبالغ الصغيرة جداً</span>
+              </div>
+
+              <div className="p-3 bg-blue-50/70 rounded-2xl border border-blue-200 text-xs text-blue-900 space-y-1">
+                <span className="font-bold block">معاينة فورية:</span>
+                <div className="flex justify-between">
+                  <span>عملية بمبلغ 500 ج:</span>
+                  <strong className="font-mono font-bold">
+                    {Math.max(parseFloat(quickMinFee) || 0, Math.ceil((500 / 1000) * (parseFloat(quickRatePerThousand) || 0)))} ج
+                  </strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>عملية بمبلغ 1,000 ج:</span>
+                  <strong className="font-mono font-bold">
+                    {Math.max(parseFloat(quickMinFee) || 0, Math.ceil((1000 / 1000) * (parseFloat(quickRatePerThousand) || 0)))} ج
+                  </strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>عملية بمبلغ 3,000 ج:</span>
+                  <strong className="font-mono font-bold">
+                    {Math.max(parseFloat(quickMinFee) || 0, Math.ceil((3000 / 1000) * (parseFloat(quickRatePerThousand) || 0)))} ج
+                  </strong>
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowQuickRateModal(false)}
+                  className="flex-1 rounded-xl border border-slate-200 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 rounded-xl bg-blue-600 hover:bg-blue-700 text-white py-2.5 text-xs font-bold shadow-md cursor-pointer"
+                >
+                  حفظ وتطبيق فوراً
                 </button>
               </div>
             </form>

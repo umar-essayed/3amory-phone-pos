@@ -18,10 +18,13 @@ import {
   PlayCircle,
   User,
   Percent,
+  Receipt,
+  RotateCcw,
 } from 'lucide-react';
 import { db } from '../db';
 import { triggerPrint } from '../services/printer';
 import { useModal } from '../context/ModalContext';
+import { ShiftInvoicesModal } from '../components/ShiftInvoicesModal';
 import type { InvoiceItem, SaleInvoice, StoreSettings, Phone, Accessory } from '../types';
 
 export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> = ({
@@ -42,6 +45,7 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
   const [paymentMethod, setPaymentMethod] = useState<SaleInvoice['paymentMethod']>('cash');
   const [selectedWalletId, setSelectedWalletId] = useState<string>('');
   const [heldOrders, setHeldOrders] = useState<{ id: string; name: string; items: InvoiceItem[] }[]>([]);
+  const [showShiftInvoicesModal, setShowShiftInvoicesModal] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   // Focus search input on mount
@@ -417,15 +421,27 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
                 <span className="text-[10px] text-slate-400">الكاشير: {cashierName}</span>
               </div>
             </div>
-            {cartItems.length > 0 && (
+            <div className="flex items-center gap-1.5">
               <button
-                onClick={handleHoldOrder}
-                className="flex items-center gap-1 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl hover:bg-amber-100 transition cursor-pointer"
+                type="button"
+                onClick={() => setShowShiftInvoicesModal(true)}
+                className="flex items-center gap-1 text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-xl hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 transition cursor-pointer"
+                title="استعراض فواتير الوردية وعمل المرتجعات"
               >
-                <PauseCircle className="h-3.5 w-3.5" />
-                <span>تعليق الفاتورة</span>
+                <Receipt className="h-3.5 w-3.5 text-blue-600" />
+                <span>فواتير الوردية / المرتجع</span>
               </button>
-            )}
+
+              {cartItems.length > 0 && (
+                <button
+                  onClick={handleHoldOrder}
+                  className="flex items-center gap-1 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl hover:bg-amber-100 transition cursor-pointer"
+                >
+                  <PauseCircle className="h-3.5 w-3.5" />
+                  <span>تعليق الفاتورة</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Customer Quick Details */}
@@ -628,6 +644,16 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
           </button>
         </div>
       </div>
+
+      {/* Shift Invoices & Returns Inspector Modal */}
+      {showShiftInvoicesModal && (
+        <ShiftInvoicesModal
+          shiftId={activeShiftId}
+          activeShiftId={activeShiftId}
+          currentCashierName={cashierName}
+          onClose={() => setShowShiftInvoicesModal(false)}
+        />
+      )}
     </div>
   );
 };

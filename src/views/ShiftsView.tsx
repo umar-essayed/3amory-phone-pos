@@ -17,6 +17,7 @@ import {
 import { db } from '../db';
 import { triggerPrint } from '../services/printer';
 import { useModal } from '../context/ModalContext';
+import { ShiftInvoicesModal } from '../components/ShiftInvoicesModal';
 import type { Shift, Expense, StoreSettings } from '../types';
 
 export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }> = ({
@@ -30,6 +31,17 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
   const expenses =
     useLiveQuery(() => db.expenses.where('shiftId').equals(activeShiftId).toArray()) || [];
   const settings = useLiveQuery(() => db.settings.get(1));
+
+  // Active shift invoices count
+  const activeShiftInvoicesCount =
+    useLiveQuery(() => db.invoices.where('shiftId').equals(activeShiftId).count()) || 0;
+
+  // Selected shift for viewing invoices modal
+  const [selectedShiftForInvoices, setSelectedShiftForInvoices] = useState<{
+    id: string;
+    number?: number;
+    cashier?: string;
+  } | null>(null);
 
   // Close shift modal state
   const [showCloseModal, setShowCloseModal] = useState(false);
@@ -175,7 +187,25 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setSelectedShiftForInvoices({
+                    id: activeShift.id,
+                    number: activeShift.shiftNumber,
+                    cashier: activeShift.cashierName,
+                  })
+                }
+                className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 text-xs font-black shadow-md hover:shadow-lg transition active:scale-95 cursor-pointer border border-blue-400/40"
+              >
+                <Receipt className="h-4 w-4" />
+                <span>فواتير الوردية الحالية</span>
+                <span className="bg-white/20 px-2 py-0.5 rounded-full text-[11px] font-mono font-bold">
+                  {activeShiftInvoicesCount}
+                </span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setShowExpenseModal(true)}
@@ -276,10 +306,27 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
 
       {/* Shifts History Table */}
       <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-5">
-        <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
-          <History className="h-4 w-4 text-blue-600" />
-          <span>سجل الورديات السابقة وتقفيل الدرج</span>
-        </h3>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+            <History className="h-4 w-4 text-blue-600" />
+            <span>سجل الورديات السابقة وتقفيل الدرج</span>
+          </h3>
+
+          <button
+            type="button"
+            onClick={() =>
+              setSelectedShiftForInvoices({
+                id: 'all',
+                number: undefined,
+                cashier: undefined,
+              })
+            }
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition cursor-pointer border border-slate-200 shadow-2xs self-start sm:self-auto"
+          >
+            <Receipt className="h-4 w-4 text-blue-600" />
+            <span>كافة فواتير النظام (المرتجعات والبحث)</span>
+          </button>
+        </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-right text-xs">
@@ -292,12 +339,13 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
                 <th className="p-3">الكاش النظامي</th>
                 <th className="p-3">الكاش الفعلي</th>
                 <th className="p-3">العجز / الزيادة</th>
-                <th className="p-3 text-center">طباعة</th>
+                <th className="p-3 text-center">فواتير الوردية</th>
+                <th className="p-3 text-center">تقرير التقفيل</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {shiftsHistory.map((s) => (
-                <tr key={s.id} className="hover:bg-slate-50">
+                <tr key={s.id} className="hover:bg-slate-50 transition">
                   <td className="p-3 font-mono font-black text-blue-700">#{s.shiftNumber}</td>
                   <td className="p-3 font-semibold">{s.cashierName}</td>
                   <td className="p-3 text-slate-500 font-mono">
@@ -336,6 +384,23 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
                   <td className="p-3 text-center">
                     <button
                       type="button"
+                      onClick={() =>
+                        setSelectedShiftForInvoices({
+                          id: s.id,
+                          number: s.shiftNumber,
+                          cashier: s.cashierName,
+                        })
+                      }
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs transition cursor-pointer border border-blue-200/80 shadow-2xs active:scale-95"
+                      title="استعراض فواتير ومرتجعات هذه الوردية"
+                    >
+                      <Receipt className="h-3.5 w-3.5" />
+                      <span>فواتير الوردية</span>
+                    </button>
+                  </td>
+                  <td className="p-3 text-center">
+                    <button
+                      type="button"
                       onClick={() => {
                         if (settings) {
                           triggerPrint({
@@ -346,6 +411,7 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
                         }
                       }}
                       className="p-1.5 rounded-lg bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-blue-600 transition cursor-pointer"
+                      title="طباعة تقرير الوردية Z-Report"
                     >
                       <Printer className="h-3.5 w-3.5" />
                     </button>
@@ -514,6 +580,18 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
             </form>
           </div>
         </div>
+      )}
+
+      {/* Modal: Shift Invoices & Returns Inspector */}
+      {selectedShiftForInvoices && (
+        <ShiftInvoicesModal
+          shiftId={selectedShiftForInvoices.id}
+          shiftNumber={selectedShiftForInvoices.number}
+          shiftCashier={selectedShiftForInvoices.cashier}
+          activeShiftId={activeShiftId}
+          currentCashierName={cashierName}
+          onClose={() => setSelectedShiftForInvoices(null)}
+        />
       )}
     </div>
   );

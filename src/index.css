@@ -72,9 +72,23 @@ body {
   user-select: none;
 }
 
-/* Allow text selection in inputs */
+/* Allow text selection in inputs & eliminate harsh browser focus outlines */
 input, textarea, [contenteditable] {
   user-select: text;
+}
+
+input:focus, textarea:focus, select:focus, button:focus {
+  outline: none !important;
+}
+
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type=number] {
+  -moz-appearance: textfield;
 }
 
 /* ═══════════════════════════════════════════════════════════════════

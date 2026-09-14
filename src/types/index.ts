@@ -138,6 +138,7 @@ export interface InvoiceItem {
   unitPrice: number;
   totalPrice: number;
   costPrice: number;
+  returnedQuantity?: number;
 }
 
 export interface SaleInvoice {
@@ -157,7 +158,10 @@ export interface SaleInvoice {
   paymentMethod: 'cash' | 'wallet' | 'instapay' | 'debt' | 'mixed';
   walletId?: string;
   totalProfit: number;
-  status: 'completed' | 'returned' | 'canceled';
+  status: 'completed' | 'returned' | 'partially_returned' | 'canceled';
+  returnedAmount?: number;
+  returnReason?: string;
+  returnedAt?: string;
   createdAt: string;
 }
 
@@ -213,6 +217,7 @@ export interface Shift {
   totalWalletOut: number;
   totalCommissions: number;
   totalExpenses: number;
+  totalReturnsCash?: number;
   notes?: string;
 }
 

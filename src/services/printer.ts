@@ -14,7 +14,8 @@ export type PrintDocumentType =
   | 'repair_ticket'
   | 'used_phone_contract'
   | 'barcode_label'
-  | 'shift_report';
+  | 'shift_report'
+  | 'return_receipt';
 
 export interface PrintData {
   type: PrintDocumentType;
