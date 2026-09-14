@@ -271,19 +271,6 @@ export const PhonesView: React.FC = () => {
             <p className="font-bold text-slate-600">
               {phones.length === 0 ? 'لا توجد هواتف مسجلة بالمخزن حالياً' : 'لا توجد هواتف مطابقة لخيارات البحث.'}
             </p>
-            {phones.length === 0 && (
-              <button
-                type="button"
-                onClick={async () => {
-                  await seedSampleData(true);
-                  showToast('تمت إضافة الهواتف التجريبية بنجاح!');
-                }}
-                className="mt-2 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-md transition cursor-pointer"
-              >
-                <Sparkles className="h-4 w-4" />
-                <span>⚡ تعبئة هواتف تجريبية (iPhone 15, S24, Redmi)</span>
-              </button>
-            )}
           </div>
         ) : (
           filteredPhones.map((p) => (
@@ -294,6 +281,17 @@ export const PhonesView: React.FC = () => {
               }`}
             >
               <div>
+                {p.imageUrl && (
+                  <div className="relative w-full h-36 mb-3 rounded-xl overflow-hidden bg-slate-100 border border-slate-100 flex items-center justify-center">
+                    <img
+                      src={p.imageUrl}
+                      alt={p.name}
+                      className="w-full h-full object-cover transition duration-300 hover:scale-105"
+                      loading="lazy"
+                    />
+                  </div>
+                )}
+
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div>
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">

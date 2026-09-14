@@ -533,19 +533,6 @@ export const AccessoriesView: React.FC = () => {
                         ? 'لا توجد أصناف إكسسوارات مسجلة بالمخزن حالياً'
                         : 'لا توجد أصناف مطابقة لعملية البحث.'}
                     </p>
-                    {accessories.length === 0 && (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          await seedSampleData(true);
-                          showToast('تمت إضافة الإكسسوارات التجريبية بنجاح!');
-                        }}
-                        className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-md transition cursor-pointer"
-                      >
-                        <Sparkles className="h-4 w-4" />
-                        <span>⚡ تعبئة إكسسوارات تجريبية بمتغيراتها (شواحن، كابلات، جرابات)</span>
-                      </button>
-                    )}
                   </td>
                 </tr>
               ) : (
@@ -557,14 +544,28 @@ export const AccessoriesView: React.FC = () => {
                   return (
                     <tr key={acc.id} className="hover:bg-slate-50/60 transition group">
                       <td className="p-4 max-w-xs">
-                        <div className="font-bold text-slate-900 group-hover:text-blue-700 transition flex items-center gap-1.5">
-                          <span>{acc.name}</span>
-                          {hasVars && (
-                            <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 text-[10px] font-bold">
-                              {acc.variants!.length} متغيرات
-                            </span>
+                        <div className="flex items-center gap-3">
+                          {acc.imageUrl ? (
+                            <img
+                              src={acc.imageUrl}
+                              alt={acc.name}
+                              className="h-10 w-10 rounded-xl object-cover border border-slate-200 shrink-0 shadow-2xs"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="h-10 w-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 shrink-0">
+                              <Package className="h-5 w-5" />
+                            </div>
                           )}
-                        </div>
+                          <div>
+                            <div className="font-bold text-slate-900 group-hover:text-blue-700 transition flex items-center gap-1.5">
+                              <span>{acc.name}</span>
+                              {hasVars && (
+                                <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 text-[10px] font-bold">
+                                  {acc.variants!.length} متغيرات
+                                </span>
+                              )}
+                            </div>
 
                         {/* Variants Preview Badges */}
                         {hasVars && (
@@ -587,6 +588,8 @@ export const AccessoriesView: React.FC = () => {
                         {acc.location && (
                           <p className="text-[10px] text-slate-400 mt-1">📍 {acc.location}</p>
                         )}
+                          </div>
+                        </div>
                       </td>
 
                       <td className="p-4 font-mono text-slate-600 text-[11px]">{acc.barcode}</td>
