@@ -1,9 +1,8 @@
-@import "tailwindcss";
-
 /* ═══════════════════════════════════════════════════════════════════
    Google Fonts — Cairo (body) + El Messiri (headings)
 ════════════════════════════════════════════════════════════════════ */
 @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&family=El+Messiri:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
 
 /* ═══════════════════════════════════════════════════════════════════
    CSS Custom Properties — Brand System
@@ -290,10 +289,6 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
   /* 58mm override */
   .size-58mm {
     width: 58mm !important;
-  }
-
-  @page.size-58mm {
-    size: 58mm auto;
   }
 }
 
