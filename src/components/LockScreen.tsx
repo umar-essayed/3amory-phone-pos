@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { db } from '../db';
 import type { User } from '../types';
+import { getStoreLogo, DEFAULT_LOGO } from '../constants/logo';
 
 interface LockScreenProps {
   onLogin: (user: User) => void;
@@ -100,7 +101,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({ onLogin, logoUrl, storeN
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedUser, pin]);
 
-  const resolvedLogo = logoUrl || settings?.logoUrl || '/logo-removebg-preview.png';
+  const resolvedLogo = getStoreLogo(logoUrl || settings?.logoUrl);
   const resolvedStoreName = storeName || settings?.storeName || '3amory phone';
 
   return (
@@ -120,7 +121,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({ onLogin, logoUrl, storeN
               alt="Logo"
               className="max-h-full max-w-full object-contain filter drop-shadow"
               onError={(e) => {
-                (e.target as HTMLImageElement).src = '/logo-removebg-preview.png';
+                (e.target as HTMLImageElement).src = DEFAULT_LOGO;
               }}
             />
           </div>

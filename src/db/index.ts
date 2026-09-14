@@ -152,21 +152,18 @@ async function doInitializeDatabase() {
       await db.wallets.bulkDelete(mockWallets.map((w) => w.id));
     }
 
-    // Seed realistic sample phones & accessories with photos for testing/screenshots
-    const isDemoCleared = typeof window !== 'undefined' && window.localStorage?.getItem('demo_data_cleared') === 'true';
-    if (!isDemoCleared) {
-      const demoPhonesCount = await db.phones.where('id').startsWith('demo_').count();
-      if (demoPhonesCount === 0) {
-        await db.phones.bulkPut(SAMPLE_PHONES);
-      }
-      const demoAccsCount = await db.accessories.where('id').startsWith('demo_').count();
-      if (demoAccsCount === 0) {
-        await db.accessories.bulkPut(SAMPLE_ACCESSORIES);
-      }
-      const demoWalletsCount = await db.wallets.where('id').startsWith('demo_').count();
-      if (demoWalletsCount === 0) {
-        await db.wallets.bulkPut(SAMPLE_WALLETS);
-      }
+    // Ensure 100% clean production database (Zero mock/sample data on fresh launch)
+    const existingDemoPhones = await db.phones.where('id').startsWith('demo_').toArray();
+    if (existingDemoPhones.length > 0) {
+      await db.phones.bulkDelete(existingDemoPhones.map((p) => p.id));
+    }
+    const existingDemoAccs = await db.accessories.where('id').startsWith('demo_').toArray();
+    if (existingDemoAccs.length > 0) {
+      await db.accessories.bulkDelete(existingDemoAccs.map((a) => a.id));
+    }
+    const existingDemoWallets = await db.wallets.where('id').startsWith('demo_').toArray();
+    if (existingDemoWallets.length > 0) {
+      await db.wallets.bulkDelete(existingDemoWallets.map((w) => w.id));
     }
 
     // Seed clean initial users (Admin & Cashier) if empty

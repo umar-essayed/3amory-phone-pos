@@ -2,21 +2,41 @@ const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const child_process = require('child_process');
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Dedicated Logging & Audit Directories in User Home
-// Example: /home/username/3amory-pos-logs OR C:\Users\username\3amory-pos-logs
+// 1. Persistent Storage Paths (Fixed Across App Updates & Clean Installs)
+// Guaranteed NOT to be wiped when updating .exe, AppImage, or reinstalling.
 // ═══════════════════════════════════════════════════════════════════════════
 const homeDir = app.getPath('home');
+const persistentDataDir = path.join(homeDir, '.3amory-pos-data');
+const backupsDir = path.join(homeDir, '3amory-pos-backups');
 const logsDir = path.join(homeDir, '3amory-pos-logs');
 const invoicePreviewsDir = path.join(logsDir, 'invoice-previews');
 
+const dbMirrorFile = path.join(persistentDataDir, 'local_pos_database_mirror.json');
 const initLogFile = path.join(logsDir, 'init-and-db.log');
 const printerLogFile = path.join(logsDir, 'printer.log');
 const systemErrorsLogFile = path.join(logsDir, 'system-errors.log');
 
+// Configure Chromium to strictly use persistentDataDir so IndexedDB is NEVER lost
+try {
+  if (!fs.existsSync(persistentDataDir)) {
+    fs.mkdirSync(persistentDataDir, { recursive: true });
+  }
+  app.setPath('userData', persistentDataDir);
+} catch (err) {
+  console.error('Failed setting persistent userData path:', err);
+}
+
 function ensureDirectoriesAndFiles() {
   try {
+    if (!fs.existsSync(persistentDataDir)) {
+      fs.mkdirSync(persistentDataDir, { recursive: true });
+    }
+    if (!fs.existsSync(backupsDir)) {
+      fs.mkdirSync(backupsDir, { recursive: true });
+    }
     if (!fs.existsSync(logsDir)) {
       fs.mkdirSync(logsDir, { recursive: true });
     }
@@ -31,7 +51,7 @@ function ensureDirectoriesAndFiles() {
     if (!fs.existsSync(initLogFile)) {
       fs.writeFileSync(
         initLogFile,
-        `=== [3amory phone POS] - سجل التهيأة وقواعد البيانات المحلية (Init & DB Log) ===\nتاريخ الإنشاء: ${timestamp}\n${systemInfo}\nالمجلد: ${logsDir}\n--------------------------------------------------------------------------------\n`
+        `=== [3amory phone POS] - سجل التهيأة وقواعد البيانات المحلية (Init & DB Log) ===\nتاريخ الإنشاء: ${timestamp}\n${systemInfo}\nالمجلد الدائم: ${persistentDataDir}\n--------------------------------------------------------------------------------\n`
       );
     }
 
@@ -63,6 +83,42 @@ function appendToLog(filePath, message, tag = 'INFO') {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 2. QZ Tray Auto-Detection & Auto-Launch Service
+// ═══════════════════════════════════════════════════════════════════════════
+function autoLaunchQzTray() {
+  const possiblePaths = [
+    // Linux standard locations
+    '/opt/qz-tray/qz-tray',
+    '/usr/bin/qz-tray',
+    '/usr/local/bin/qz-tray',
+    path.join(homeDir, 'qz-tray/qz-tray'),
+    // Windows standard locations
+    'C:\\Program Files\\qz-tray\\qz-tray.exe',
+    'C:\\Program Files (x86)\\qz-tray\\qz-tray.exe',
+    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'qz-tray', 'qz-tray.exe'),
+    path.join(process.env.APPDATA || '', 'qz-tray', 'qz-tray.exe'),
+  ];
+
+  for (const qzPath of possiblePaths) {
+    if (fs.existsSync(qzPath)) {
+      try {
+        const proc = child_process.spawn(qzPath, [], {
+          detached: true,
+          stdio: 'ignore',
+        });
+        proc.unref();
+        appendToLog(printerLogFile, `Auto-detected and launched QZ Tray from: ${qzPath}`, 'QZ_AUTO_START');
+        return { success: true, path: qzPath };
+      } catch (err) {
+        appendToLog(printerLogFile, `Found QZ Tray at ${qzPath} but spawn failed: ${err.message}`, 'WARN');
+      }
+    }
+  }
+  appendToLog(printerLogFile, 'QZ Tray executable not found at standard paths. Native silent printing remains active.', 'INFO');
+  return { success: false };
+}
+
 // Global process error logging
 process.on('uncaughtException', (error) => {
   appendToLog(systemErrorsLogFile, `UNCAUGHT EXCEPTION: ${error.message}\nStack: ${error.stack}`, 'FATAL');
@@ -76,6 +132,7 @@ process.on('unhandledRejection', (reason) => {
 // Ensure directory setup immediately on launch
 ensureDirectoriesAndFiles();
 appendToLog(initLogFile, `=== Application Session Started (PID: ${process.pid}) ===`, 'STARTUP');
+appendToLog(initLogFile, `Persistent UserData Path: ${persistentDataDir}`, 'STORAGE');
 
 let mainWindow = null;
 
@@ -160,7 +217,75 @@ function createWindow() {
   });
 
   // ═════════════════════════════════════════════════════════════════════════
-  // Logging IPC Handlers
+  // 3. Persistent Database Mirror & Backup Handlers
+  // ═════════════════════════════════════════════════════════════════════════
+  ipcMain.handle('db:save-mirror', async (event, jsonData) => {
+    try {
+      if (typeof jsonData === 'string') {
+        fs.writeFileSync(dbMirrorFile, jsonData, 'utf8');
+      } else {
+        fs.writeFileSync(dbMirrorFile, JSON.stringify(jsonData, null, 2), 'utf8');
+      }
+      return { success: true, path: dbMirrorFile };
+    } catch (err) {
+      appendToLog(systemErrorsLogFile, `Failed saving database mirror: ${err.message}`, 'ERROR');
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('db:load-mirror', async () => {
+    try {
+      if (fs.existsSync(dbMirrorFile)) {
+        const raw = fs.readFileSync(dbMirrorFile, 'utf8');
+        return { exists: true, data: JSON.parse(raw) };
+      }
+      return { exists: false };
+    } catch (err) {
+      appendToLog(systemErrorsLogFile, `Failed reading database mirror: ${err.message}`, 'ERROR');
+      return { exists: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('backup:save-snapshot', async (event, { filename, jsonContent, folderName }) => {
+    try {
+      let targetDir = backupsDir;
+      if (folderName) {
+        targetDir = path.join(backupsDir, folderName);
+        if (!fs.existsSync(targetDir)) {
+          fs.mkdirSync(targetDir, { recursive: true });
+        }
+      }
+      const safeFilename = filename.endsWith('.json') ? filename : `${filename}.json`;
+      const fullPath = path.join(targetDir, safeFilename);
+      fs.writeFileSync(fullPath, jsonContent, 'utf8');
+      appendToLog(initLogFile, `Saved backup snapshot: ${fullPath}`, 'BACKUP');
+      return { success: true, path: fullPath };
+    } catch (err) {
+      appendToLog(systemErrorsLogFile, `Failed to save backup snapshot: ${err.message}`, 'ERROR');
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('backup:open-folder', async () => {
+    try {
+      await shell.openPath(backupsDir);
+      return true;
+    } catch (err) {
+      return false;
+    }
+  });
+
+  ipcMain.handle('storage:get-paths', () => {
+    return {
+      persistentDataDir,
+      backupsDir,
+      logsDir,
+      dbMirrorFile,
+    };
+  });
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // 4. Logging IPC Handlers
   // ═════════════════════════════════════════════════════════════════════════
   ipcMain.handle('logger:log-init', (event, { message, isError, data }) => {
     const tag = isError ? 'ERROR' : 'INFO';
@@ -191,7 +316,6 @@ function createWindow() {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       const baseFilename = `invoice_${sanitizedNum}_${timestamp}`;
 
-      // 1. Save PNG Screenshot if base64 image provided
       if (imageBase64 && imageBase64.includes('base64,')) {
         const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
         const imageBuffer = Buffer.from(base64Data, 'base64');
@@ -199,7 +323,6 @@ function createWindow() {
         fs.writeFileSync(imgPath, imageBuffer);
       }
 
-      // 2. Save styled standalone HTML snapshot
       if (htmlContent) {
         const htmlDoc = `<!doctype html>
 <html lang="ar" dir="rtl">
@@ -250,7 +373,7 @@ function createWindow() {
   });
 
   // ═════════════════════════════════════════════════════════════════════════
-  // Printer IPC Handlers
+  // 5. Printer IPC Handlers & QZ Launchers
   // ═════════════════════════════════════════════════════════════════════════
   ipcMain.handle('printer:get-printers', async () => {
     try {
@@ -271,7 +394,7 @@ function createWindow() {
       if (!mainWindow) return resolve(false);
 
       const targetDevice = options.deviceName || 'Default';
-      appendToLog(printerLogFile, `Initiating silent print job to device: ${targetDevice}`, 'INFO');
+      appendToLog(printerLogFile, `Initiating native silent print job to device: ${targetDevice}`, 'INFO');
 
       mainWindow.webContents.print(
         {
@@ -301,10 +424,21 @@ function createWindow() {
     appendToLog(printerLogFile, 'Cash drawer kick signal triggered via IPC', 'DRAWER');
     return true;
   });
+
+  ipcMain.handle('printer:launch-qz', async () => {
+    return autoLaunchQzTray();
+  });
+
+  ipcMain.handle('printer:download-qz', async () => {
+    shell.openExternal('https://qz.io/download/');
+    return true;
+  });
 }
 
 app.whenReady().then(() => {
   createWindow();
+  // Attempt auto-starting QZ Tray on app boot
+  autoLaunchQzTray();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

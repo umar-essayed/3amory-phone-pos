@@ -1,7 +1,7 @@
 {
   "name": "mobile-pos-pro",
   "productName": "3amory phone POS",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "3amory phone - Professional Mobile POS & Wallets Management System",
   "type": "module",
   "main": "electron/main.cjs",

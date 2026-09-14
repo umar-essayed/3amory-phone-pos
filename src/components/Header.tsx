@@ -15,6 +15,7 @@ import { db } from '../db';
 import { syncDataToFirebase } from '../services/firebase';
 import { systemLogger } from '../services/logger';
 import { useModal } from '../context/ModalContext';
+import { getStoreLogo, DEFAULT_LOGO } from '../constants/logo';
 
 interface HeaderProps {
   currentRole: string;
@@ -48,7 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const drawerBalance = Math.max(0, openShift?.closingCashSystem || 0);
   const cur = settings?.currency || 'ج.م';
-  const logoSrc = settings?.logoUrl || '/logo-removebg-preview.png';
+  const logoSrc = getStoreLogo(settings?.logoUrl);
 
   return (
     <header className="sticky top-0 z-40 bg-white border-b border-slate-200 px-4 sm:px-6 py-2.5 shadow-xs no-print">
@@ -61,7 +62,7 @@ export const Header: React.FC<HeaderProps> = ({
               alt="Logo"
               className="max-h-full max-w-full object-contain"
               onError={(e) => {
-                (e.target as HTMLImageElement).src = '/logo-removebg-preview.png';
+                (e.target as HTMLImageElement).src = DEFAULT_LOGO;
               }}
             />
           </div>

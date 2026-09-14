@@ -3,6 +3,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { Printer, X, Download, ShieldCheck, Camera, FolderOpen, CheckCircle } from 'lucide-react';
 import type { PrintData } from '../services/printer';
 import { systemLogger } from '../services/logger';
+import { getStoreLogo, DEFAULT_LOGO } from '../constants/logo';
 
 export const PrintModal: React.FC = () => {
   const [activePrint, setActivePrint] = useState<PrintData | null>(null);
@@ -155,18 +156,16 @@ export const PrintModal: React.FC = () => {
             
             {/* === RECEIPT HEADER (STORE BRANDING) === */}
             <div className="text-center pb-4 border-b border-dashed border-slate-300">
-              {settings.logoUrl && (
-                <div className="flex justify-center mb-2">
-                  <img
-                    src={settings.logoUrl || '/logo-removebg-preview.png'}
-                    alt={settings.storeName}
-                    className="h-16 w-auto max-w-[140px] object-contain"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = '/logo-removebg-preview.png';
-                    }}
-                  />
-                </div>
-              )}
+              <div className="flex justify-center mb-2">
+                <img
+                  src={getStoreLogo(settings.logoUrl)}
+                  alt={settings.storeName}
+                  className="h-16 w-auto max-w-[140px] object-contain"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = DEFAULT_LOGO;
+                  }}
+                />
+              </div>
               <h2 className="text-xl font-black text-slate-900">{settings.storeName}</h2>
               {settings.storeNameEn && (
                 <p className="text-xs font-semibold text-slate-500">{settings.storeNameEn}</p>

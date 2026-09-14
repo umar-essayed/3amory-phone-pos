@@ -30,6 +30,7 @@ export interface StoreSettings {
   };
   enableCloudSync: boolean;
   lastSyncTime: string | null;
+  lastWeeklyBackupDate?: string;
   commissionRules?: {
     transferFeePerThousand: number; // عمولة تحويل كاش لكل 1000 جنيه
     minTransferFee: number;         // الحد الأدنى لعمولة التحويل

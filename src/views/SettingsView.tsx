@@ -23,13 +23,22 @@ import {
   Camera,
   Terminal,
   AlertCircle,
+  Trash2,
+  Calendar,
+  Database,
+  ExternalLink,
+  Play,
 } from 'lucide-react';
 import { db, seedSampleData } from '../db';
 import { triggerPrint, kickCashDrawer, buildEscPosReceiptBuffer } from '../services/printer';
 import { qzTrayService } from '../services/qzTrayService';
 import { syncDataToFirebase } from '../services/firebase';
 import { systemLogger } from '../services/logger';
+import { backupService } from '../services/backupService';
+import { syncService } from '../services/syncService';
+import { printerScanner, type DiscoveredPrinter } from '../services/printerScanner';
 import { useModal } from '../context/ModalContext';
+import { getStoreLogo, DEFAULT_LOGO } from '../constants/logo';
 import type { StoreSettings } from '../types';
 
 export const SettingsView: React.FC = () => {
@@ -46,6 +55,116 @@ export const SettingsView: React.FC = () => {
   const [simAmount, setSimAmount] = useState<number>(1000);
   const [qzStatus, setQzStatus] = useState(qzTrayService.getStatus());
   const [qzConnecting, setQzConnecting] = useState(false);
+  const [availablePrinters, setAvailablePrinters] = useState<DiscoveredPrinter[]>([]);
+  const [scanningPrinters, setScanningPrinters] = useState(false);
+  const [resettingDb, setResettingDb] = useState(false);
+  const [restoringCloud, setRestoringCloud] = useState(false);
+
+  const loadAllPrinters = async () => {
+    setScanningPrinters(true);
+    try {
+      const list = await printerScanner.getAllPrinters();
+      setAvailablePrinters(list);
+      if (list.length > 0 && formData && !formData.qzTrayConfig?.printerName) {
+        const defaultP = list.find((p) => p.isDefault) || list[0];
+        setFormData((prev) => (prev ? {
+          ...prev,
+          qzTrayConfig: {
+            ...prev.qzTrayConfig,
+            printerName: defaultP.name,
+            enabled: prev.qzTrayConfig?.enabled ?? true,
+            host: prev.qzTrayConfig?.host || 'localhost',
+            port: prev.qzTrayConfig?.port || 8182,
+            autoPrint: prev.qzTrayConfig?.autoPrint ?? false,
+          },
+        } : null));
+      }
+    } catch (err) {
+      console.warn('Load printers note:', err);
+    } finally {
+      setScanningPrinters(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAllPrinters();
+  }, []);
+
+  const handleLaunchQz = async () => {
+    const res = await printerScanner.launchQzTray();
+    if (res.success) {
+      showToast('تم تشغيل برنامج QZ Tray بنجاح! جاري فحص الاتصال...');
+      setTimeout(() => {
+        handleConnectAndRefreshQz();
+        loadAllPrinters();
+      }, 2000);
+    } else {
+      const wantDownload = await showConfirm(
+        'لم يتم العثور على برنامج QZ Tray مثبت في المسارات الافتراضية للجهاز. هل تريد فتح صفحة تحميل وتثبيت البرنامج رسمياً الآن؟',
+        'تشغيل QZ Tray',
+        { confirmText: 'تحميل الآن', cancelText: 'إلغاء' }
+      );
+      if (wantDownload) {
+        printerScanner.openQzDownloadPage();
+      }
+    }
+  };
+
+  const handleManualBackupNow = async () => {
+    const res = await backupService.saveManualBackup();
+    if (res.success) {
+      showToast(`تم حفظ النسخة الاحتياطية بنجاح: ${res.filename} 💾`);
+    } else {
+      showAlert('حدث خطأ أثناء حفظ النسخة الاحتياطية.', 'خطأ في النسخ', 'error');
+    }
+  };
+
+  const handleRestoreFromCloud = async () => {
+    const confirm = await showConfirm(
+      'سيقوم هذا الإجراء بمزامنة واسترجاع كافة البيانات والعمليات المحفوظة على سحابة Firebase إلى قاعدة البيانات المحلية على هذا الجهاز. هل تريد المتابعة؟',
+      'استعادة من السحابة',
+      { confirmText: 'بدء الاستعادة', cancelText: 'إلغاء' }
+    );
+    if (!confirm) return;
+
+    setRestoringCloud(true);
+    const res = await syncService.restoreEntireDatabaseFromCloud();
+    setRestoringCloud(false);
+
+    if (res.success) {
+      showToast(res.message);
+    } else {
+      showAlert(res.message, 'تنبيه الاستعادة', 'error');
+    }
+  };
+
+  const handleFullDbReset = async () => {
+    const confirm = await showConfirm(
+      'تحذير أمني هام: سيتم تصفير وتنظيف كافة معاملات المحل والمخزون والورديات بالكامل.\n\nسيقوم النظام تلقائياً بإنشاء نسخة احتياطية آمنة في مجلد السجلات قبل المسح. هل أنت متأكد؟',
+      'تصفير قاعدة البيانات',
+      { danger: true, confirmText: 'نعم، تصفير الآن', cancelText: 'تراجع' }
+    );
+    if (!confirm) return;
+
+    setResettingDb(true);
+    syncService.muteSync();
+    try {
+      const res = await backupService.fullDatabaseResetWithMandatoryBackup();
+      if (res.success) {
+        await showAlert(
+          `تم تصفير وتنظيف قاعدة البيانات بنجاح!\nتم حفظ نسخة الأمان الإلزامية في مجلد النسخ الاحتياطية:\n${res.backupPath || '~/3amory-pos-backups/'}`,
+          'تم التصفير بنجاح',
+          'info'
+        );
+        window.location.reload();
+      } else {
+        showAlert('حدث خطأ أثناء تصفير قاعدة البيانات.', 'خطأ', 'error');
+      }
+    } finally {
+      syncService.unmuteSync();
+      setResettingDb(false);
+    }
+  };
 
   useEffect(() => {
     const unsub = qzTrayService.onStatusChange((status) => {
@@ -143,9 +262,11 @@ export const SettingsView: React.FC = () => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onload = () => {
-        setFormData({ ...formData, logoUrl: reader.result as string });
-        showToast('تم رفع ومعاينة الشعار الجديد بنجاح');
+      reader.onload = async () => {
+        const base64 = reader.result as string;
+        setFormData((prev) => (prev ? { ...prev, logoUrl: base64 } : null));
+        await db.settings.update(1, { logoUrl: base64 });
+        showToast('تم رفع وتطبيق الشعار الجديد بنجاح في جميع الشاشات والفواتير! 🖼️');
       };
       reader.readAsDataURL(file);
     }
@@ -369,24 +490,20 @@ export const SettingsView: React.FC = () => {
           <form onSubmit={handleSave} className="space-y-6">
             <div className="flex flex-col sm:flex-row items-center gap-6 p-4 rounded-2xl bg-slate-50 border border-slate-200">
               <div className="relative h-24 w-24 rounded-2xl border-2 border-dashed border-slate-300 p-2 bg-white flex items-center justify-center overflow-hidden shadow-xs">
-                {formData.logoUrl ? (
-                  <img
-                    src={formData.logoUrl}
-                    alt="Logo"
-                    className="max-h-full max-w-full object-contain"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = '/logo-removebg-preview.png';
-                    }}
-                  />
-                ) : (
-                  <Store className="h-10 w-10 text-slate-300" />
-                )}
+                <img
+                  src={getStoreLogo(formData.logoUrl)}
+                  alt="Logo"
+                  className="max-h-full max-w-full object-contain"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = DEFAULT_LOGO;
+                  }}
+                />
               </div>
 
               <div className="flex-1 text-center sm:text-right space-y-2">
-                <h4 className="font-bold text-sm text-slate-800">شعار المحل الافتراضي (Logo)</h4>
+                <h4 className="font-bold text-sm text-slate-800">شعار المحل (Logo)</h4>
                 <p className="text-xs text-slate-500">
-                  يظهر هذا الشعار على رأس الفواتير الورقية وعقود البيع والشريط العلوي للنظام.
+                  يظهر هذا الشعار على رأس الفواتير الورقية وعقود البيع والشريط العلوي للنظام فور رفعه.
                 </p>
                 <div className="flex items-center justify-center sm:justify-start gap-3">
                   <label className="inline-flex items-center gap-2 rounded-xl bg-white border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 cursor-pointer">
@@ -394,13 +511,17 @@ export const SettingsView: React.FC = () => {
                     <span>تغيير الشعار</span>
                     <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
                   </label>
-                  {formData.logoUrl && (
+                  {formData.logoUrl && formData.logoUrl !== DEFAULT_LOGO && (
                     <button
                       type="button"
-                      onClick={() => setFormData({ ...formData, logoUrl: '/logo-removebg-preview.png' })}
+                      onClick={async () => {
+                        setFormData({ ...formData, logoUrl: DEFAULT_LOGO });
+                        await db.settings.update(1, { logoUrl: DEFAULT_LOGO });
+                        showToast('تمت استعادة الشعار الأصلي بنجاح');
+                      }}
                       className="text-xs font-bold text-slate-500 hover:text-red-600 cursor-pointer"
                     >
-                      استعادة الشعار الافتراضي
+                      استعادة الشعار الأصلي
                     </button>
                   )}
                 </div>
@@ -611,68 +732,69 @@ export const SettingsView: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-200 mb-1">طابعة الكاشير المستهدفة</label>
-                  {qzStatus.printers && qzStatus.printers.length > 0 ? (
-                    <div className="flex gap-2">
-                      <select
-                        value={formData.qzTrayConfig?.printerName || ''}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            qzTrayConfig: {
-                              enabled: formData.qzTrayConfig?.enabled ?? true,
-                              host: formData.qzTrayConfig?.host || 'localhost',
-                              port: formData.qzTrayConfig?.port || 8182,
-                              printerName: e.target.value,
-                              autoPrint: formData.qzTrayConfig?.autoPrint ?? false,
-                            },
-                          })
-                        }
-                        className="w-full rounded-xl bg-slate-800 border border-slate-600 p-2 text-xs font-bold text-white focus:outline-none focus:border-blue-500"
-                      >
-                        <option value="">-- اختر الطابعة الحرارية --</option>
-                        {qzStatus.printers.map((p) => (
-                          <option key={p} value={p}>
-                            {p} {p === qzStatus.defaultPrinter ? ' (الافتراضية)' : ''}
-                          </option>
-                        ))}
-                      </select>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-bold text-slate-200">طابعة الكاشير المستهدفة (من طابعات الجهاز)</label>
+                    <div className="flex items-center gap-1.5">
                       <button
                         type="button"
-                        onClick={handleConnectAndRefreshQz}
-                        title="إعادة فحص الطابعات"
-                        className="px-2.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-600"
+                        onClick={loadAllPrinters}
+                        disabled={scanningPrinters}
+                        title="إعادة فحص واكتشاف طابعات النظام"
+                        className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1 cursor-pointer"
                       >
-                        <RefreshCw className="h-4 w-4" />
+                        <RefreshCw className={`h-3 w-3 ${scanningPrinters ? 'animate-spin' : ''}`} />
+                        <span>تحديث القائمة ({availablePrinters.length})</span>
                       </button>
                     </div>
-                  ) : (
-                    <div className="space-y-1">
-                      <input
-                        type="text"
-                        placeholder="مثال: POS-80 أو XP-80C أو Thermal Printer"
-                        value={formData.qzTrayConfig?.printerName || ''}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            qzTrayConfig: {
-                              enabled: formData.qzTrayConfig?.enabled ?? false,
-                              host: formData.qzTrayConfig?.host || 'localhost',
-                              port: formData.qzTrayConfig?.port || 8182,
-                              printerName: e.target.value,
-                              autoPrint: formData.qzTrayConfig?.autoPrint ?? false,
-                            },
-                          })
-                        }
-                        className="w-full rounded-xl bg-slate-800 border border-slate-600 p-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                      />
-                      <p className="text-[10px] text-slate-400">
-                        {qzStatus.connected
-                          ? 'لم يتم العثور على طابعات مثبتة، اكتب اسم الطابعة يدوياً.'
-                          : 'شغّل QZ Tray واضغط "فحص الاتصال والطابعات" لتحميل الطابعات تلقائياً.'}
-                      </p>
-                    </div>
-                  )}
+                  </div>
+
+                  <div className="flex gap-2">
+                    <select
+                      value={formData.qzTrayConfig?.printerName || ''}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          qzTrayConfig: {
+                            enabled: formData.qzTrayConfig?.enabled ?? true,
+                            host: formData.qzTrayConfig?.host || 'localhost',
+                            port: formData.qzTrayConfig?.port || 8182,
+                            printerName: e.target.value,
+                            autoPrint: formData.qzTrayConfig?.autoPrint ?? false,
+                          },
+                        })
+                      }
+                      className="w-full rounded-xl bg-slate-800 border border-slate-600 p-2.5 text-xs font-bold text-white focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="">-- اختر طابعة الكاشير من القائمة --</option>
+                      {availablePrinters.map((p) => (
+                        <option key={p.name} value={p.name}>
+                          🖨️ {p.displayName}
+                        </option>
+                      ))}
+                      {/* If user previously had a printer name not in list, preserve it */}
+                      {formData.qzTrayConfig?.printerName &&
+                        !availablePrinters.some((p) => p.name === formData.qzTrayConfig?.printerName) && (
+                          <option value={formData.qzTrayConfig.printerName}>
+                            🖨️ {formData.qzTrayConfig.printerName} (المحفوظة مسبقاً)
+                          </option>
+                        )}
+                    </select>
+
+                    <button
+                      type="button"
+                      onClick={handleLaunchQz}
+                      title="تشغيل خادم الطباعة QZ Tray تلقائياً"
+                      className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1 shrink-0 cursor-pointer shadow"
+                    >
+                      <Play className="h-3.5 w-3.5 fill-current" />
+                      <span className="hidden sm:inline">تشغيل QZ</span>
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    {availablePrinters.length > 0
+                      ? 'تم اكتشاف الطابعات المتصلة بنظام التشغيل تلقائياً. اختر طابعة الإيصالات الحرارية الخاصة بك.'
+                      : 'اضغط "تحديث القائمة" أو شغّل QZ Tray لاكتشاف كافة طابعات الكاشير المتصلة.'}
+                  </p>
                 </div>
               </div>
 
@@ -1122,47 +1244,141 @@ export const SettingsView: React.FC = () => {
           </form>
         )}
 
-        {/* TAB 4: BACKUP & RESTORE */}
+        {/* TAB 4: BACKUP & RESTORE & DATABASE MANAGEMENT */}
         {activeTab === 'backup' && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Export Card */}
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 flex flex-col justify-between">
+          <div className="space-y-6 animate-in fade-in duration-200">
+            {/* Storage Info Banner */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl bg-gradient-to-l from-slate-900 to-slate-800 p-5 text-white shadow-md">
+              <div className="flex items-center gap-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 shrink-0">
+                  <Database className="h-6 w-6" />
+                </div>
                 <div>
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-600 text-white mb-4 shadow-sm">
-                    <Download className="h-6 w-6" />
+                  <h3 className="text-base font-black tracking-tight">مسار قاعدة البيانات والنسخ الاحتياطية</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    البيانات مستقرة في مسار دائم: <code className="bg-slate-950 px-2 py-0.5 rounded text-emerald-300 font-mono">~/.3amory-pos-data/</code> لا تتأثر بتحديث التطبيق.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleManualBackupNow}
+                  className="flex items-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs px-4 py-2.5 shadow transition cursor-pointer"
+                >
+                  <Download className="h-4 w-4" />
+                  <span>أخذ نسخة بيكاب الآن</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => backupService.openBackupsFolder()}
+                  title="فتح مجلد النسخ الاحتياطية (~/3amory-pos-backups/)"
+                  className="flex items-center gap-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 font-bold text-xs px-3 py-2.5 transition cursor-pointer"
+                >
+                  <FolderOpen className="h-4 w-4" />
+                  <span>مجلد النسخ</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Grid of Backup Actions */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* 1. Weekly Auto-Backup Status */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 flex flex-col justify-between shadow-xs">
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                      <Calendar className="h-5 w-5" />
+                    </div>
+                    <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800">
+                      تلقائي كل أسبوع
+                    </span>
                   </div>
-                  <h4 className="font-bold text-base text-slate-800 mb-1">تصدير نسخة احتياطية (Backup)</h4>
+                  <h4 className="font-bold text-sm text-slate-900 mb-1">النسخ الاحتياطي الدوري التلقائي</h4>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    يقوم النظام تلقائياً كل أسبوع بإنشاء نسخة احتياطية كاملة وتخزينها في مجلد مخصص بتاريخ الأسبوع داخل مجلد النسخ.
+                  </p>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-100 text-[11px] text-slate-400 font-semibold">
+                  آخر نسخة دورية: {formData.lastWeeklyBackupDate ? new Date(formData.lastWeeklyBackupDate).toLocaleDateString('ar-EG') : 'جاري الفحص التلقائي'}
+                </div>
+              </div>
+
+              {/* 2. Firebase Cloud 2-Way Restore */}
+              <div className="rounded-2xl border border-blue-200 bg-blue-50/40 p-5 flex flex-col justify-between shadow-xs">
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white">
+                      <Cloud className="h-5 w-5" />
+                    </div>
+                    <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-[11px] font-bold text-blue-800">
+                      سحابة Firebase
+                    </span>
+                  </div>
+                  <h4 className="font-bold text-sm text-slate-900 mb-1">استعادة كاملة من السحابة</h4>
                   <p className="text-xs text-slate-500 leading-relaxed mb-4">
-                    قم بتحميل ملف JSON يحتوي على كامل قاعدة بيانات المحل (الأجهزة، الإكسسوارات، فودافون كاش، الصيانة، الفواتير، والورديات) وحفظها بأمان.
+                    مزامنة وتنزيل كافة بيانات المحل (الأجهزة، الإكسسوارات، فودافون كاش، الصيانة، الفواتير) من السحابة إلى هذا الجهاز مباشرة.
                   </p>
                 </div>
                 <button
                   type="button"
-                  onClick={handleExportBackup}
-                  className="flex items-center justify-center gap-2 w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-sm py-3 shadow transition cursor-pointer"
+                  onClick={handleRestoreFromCloud}
+                  disabled={restoringCloud}
+                  className="flex items-center justify-center gap-2 w-full rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs py-2.5 shadow transition cursor-pointer disabled:opacity-50"
                 >
-                  <Download className="h-4 w-4" />
-                  <span>تصدير وتحميل النسخة</span>
+                  <RefreshCw className={`h-3.5 w-3.5 ${restoringCloud ? 'animate-spin' : ''}`} />
+                  <span>{restoringCloud ? 'جاري الاسترجاع...' : 'استعادة ومزامنة من السحابة'}</span>
                 </button>
               </div>
 
-              {/* Import Card */}
-              <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-6 flex flex-col justify-between">
+              {/* 3. Custom File Import/Restore */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 flex flex-col justify-between shadow-xs">
                 <div>
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-600 text-white mb-4 shadow-sm">
-                    <ShieldAlert className="h-6 w-6" />
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
+                      <RotateCcw className="h-5 w-5" />
+                    </div>
+                    <span className="text-xs text-slate-400 font-bold">ملف محلي (JSON)</span>
                   </div>
-                  <h4 className="font-bold text-base text-slate-800 mb-1">استعادة نسخة احتياطية (Restore)</h4>
+                  <h4 className="font-bold text-sm text-slate-900 mb-1">استيراد ملف نسخة احتياطية</h4>
                   <p className="text-xs text-slate-500 leading-relaxed mb-4">
-                    حدد ملف النسخة الاحتياطية (JSON) لاسترجاع كافة المعاملات والبيانات المسجلة مسبقاً.
+                    حدد ملف نسخة احتياطية محفوظ على جهازك لاسترجاعه يدوياً بالكامل.
                   </p>
                 </div>
-                <label className="flex items-center justify-center gap-2 w-full rounded-xl bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold text-sm py-3 shadow transition cursor-pointer">
-                  <RotateCcw className="h-4 w-4" />
+                <label className="flex items-center justify-center gap-2 w-full rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-white font-bold text-xs py-2.5 shadow transition cursor-pointer">
+                  <Upload className="h-3.5 w-3.5" />
                   <span>تحديد ملف النسخة للاستعادة</span>
                   <input type="file" accept=".json" onChange={handleImportBackup} className="hidden" />
                 </label>
+              </div>
+            </div>
+
+            {/* DANGER ZONE: CLEAN FULL RESET */}
+            <div className="rounded-2xl border border-red-200 bg-red-50/40 p-6 shadow-xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-red-700 font-black text-sm">
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                    <span>منطقة الخطر: تصفير وتنظيف قاعدة البيانات بالكامل (Clean Full Reset)</span>
+                  </div>
+                  <p className="text-xs text-slate-600 leading-relaxed max-w-2xl">
+                    يقوم هذا الإجراء بمسح كافة المعاملات والمخزون والفواتير والورديات وإعادة النظام نظيفاً.
+                    <span className="font-bold text-red-700 mr-1">
+                      حفاظاً على بياناتك، يقوم النظام تلقائياً وقبل المسح بإنشاء نسخة احتياطية كاملة وتخزينها في مجلد النسخ الاحتياطية.
+                    </span>
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleFullDbReset}
+                  disabled={resettingDb}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold text-xs px-5 py-3 shadow-md shadow-red-600/20 transition cursor-pointer shrink-0 disabled:opacity-50"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  <span>{resettingDb ? 'جاري النسخ والتصفير...' : 'تصفير وتنظيف قاعدة البيانات'}</span>
+                </button>
               </div>
             </div>
           </div>

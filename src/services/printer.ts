@@ -56,6 +56,7 @@ export interface DesktopPrinterBridge {
   isDesktop: boolean;
   type: 'electron' | 'tauri' | 'webserial' | 'webusb' | 'browser';
   printRaw?: (data: Uint8Array) => Promise<boolean>;
+  printSilent?: (options?: any) => Promise<boolean>;
   kickDrawer?: () => Promise<boolean>;
 }
 
@@ -63,12 +64,13 @@ export function detectDesktopEnvironment(): DesktopPrinterBridge {
   const win = window as any;
 
   // Electron Bridge
-  if (win.electronAPI?.printRaw) {
+  if (win.electronAPI?.isDesktop) {
     return {
       isDesktop: true,
       type: 'electron',
       printRaw: async (data: Uint8Array) => win.electronAPI.printRaw(data),
-      kickDrawer: async () => win.electronAPI.printRaw(ESC_POS.DRAWER_KICK),
+      printSilent: async (options?: any) => win.electronAPI.printSilent(options),
+      kickDrawer: async () => win.electronAPI.kickDrawer(),
     };
   }
 
@@ -277,30 +279,48 @@ export async function triggerPrint(printData: PrintData): Promise<void> {
     }
   }
 
-  // 2. If running in Desktop mode with native printer bridge, print raw directly
+  // 2. If running in Desktop mode, attempt direct raw or native silent print
   const bridge = detectDesktopEnvironment();
-  if (bridge.isDesktop && bridge.printRaw) {
-    try {
-      await systemLogger.logPrinter({
-        message: 'محاولة الطباعة المباشرة عبر منفذ سطح المكتب الأصلي (Desktop Native Bridge)',
-        docType: printData.type,
-      });
-      const rawBuffer = buildEscPosReceiptBuffer(printData);
-      const printed = await bridge.printRaw(rawBuffer);
-      if (printed) {
+  if (bridge.isDesktop) {
+    if (bridge.printRaw) {
+      try {
         await systemLogger.logPrinter({
-          message: 'تمت الطباعة بنجاح عبر مشغل سطح المكتب الأصلي',
+          message: 'محاولة الطباعة المباشرة عبر منفذ سطح المكتب الأصلي (Desktop Native Bridge)',
           docType: printData.type,
         });
-        return;
+        const rawBuffer = buildEscPosReceiptBuffer(printData);
+        const printed = await bridge.printRaw(rawBuffer);
+        if (printed) {
+          await systemLogger.logPrinter({
+            message: 'تمت الطباعة بنجاح عبر مشغل سطح المكتب الأصلي',
+            docType: printData.type,
+          });
+          return;
+        }
+      } catch (err: any) {
+        console.warn('Native desktop print fallback:', err);
       }
-    } catch (err: any) {
-      console.warn('Native desktop print fallback to preview:', err);
-      await systemLogger.logPrinter({
-        message: `تعذر استخدام مشغل سطح المكتب، تحويل للمعاينة: ${err?.message || err}`,
-        isError: true,
-        docType: printData.type,
-      });
+    }
+
+    if (bridge.printSilent && qzConfig?.enabled) {
+      try {
+        await systemLogger.logPrinter({
+          message: `محاولة الطباعة الصامتة المباشرة لنظام التشغيل على الطابعة: ${qzConfig.printerName || 'الافتراضية'}`,
+          docType: printData.type,
+          printerName: qzConfig.printerName,
+        });
+        const printed = await bridge.printSilent({ deviceName: qzConfig.printerName });
+        if (printed) {
+          await systemLogger.logPrinter({
+            message: 'تمت الطباعة الصامتة بنجاح عبر نظام التشغيل',
+            docType: printData.type,
+            printerName: qzConfig.printerName,
+          });
+          return;
+        }
+      } catch (err: any) {
+        console.warn('Native printSilent fallback note:', err);
+      }
     }
   }
 

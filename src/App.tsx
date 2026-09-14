@@ -20,6 +20,9 @@ import { SettingsView } from './views/SettingsView';
 import { UsersView } from './views/UsersView';
 import type { User } from './types';
 import { systemLogger } from './services/logger';
+import { syncService, attachDexieSyncHooks } from './services/syncService';
+import { backupService } from './services/backupService';
+import { printerScanner } from './services/printerScanner';
 
 export function App() {
   const [dbReady, setDbReady] = useState(false);
@@ -32,10 +35,27 @@ export function App() {
   const activeShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
 
   useEffect(() => {
-    systemLogger.logInit('React App component mounted. Initializing Dexie DB...');
+    systemLogger.logInit('React App component mounted. Initializing Dexie DB & Sync Services...');
+    
+    // 1. Initialize local DB tables
     initializeDatabase()
-      .then(() => {
-        systemLogger.logInit('Database ready. Unlocking POS user interface.');
+      .then(async () => {
+        // 2. Perform intelligent startup bootstrap (Local -> Mirror -> Cloud)
+        await syncService.initialStartupBootstrap();
+
+        // 2b. Attach reactive sync hooks to automatically capture all operational writes
+        attachDexieSyncHooks(db);
+
+        // 3. Check and run weekly backup if due
+        await backupService.checkAndRunWeeklyBackup();
+
+        // 4. Start background queue processor worker
+        syncService.startSyncWorker();
+
+        // 5. Auto-launch QZ Tray if installed on machine
+        printerScanner.launchQzTray().catch(() => {});
+
+        systemLogger.logInit('Database and background sync services ready.');
       })
       .catch((err) => {
         console.warn('Init DB note:', err);
