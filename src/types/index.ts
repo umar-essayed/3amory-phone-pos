@@ -85,7 +85,6 @@ export interface Phone {
   };
   soldAt?: string;
   soldInvoiceId?: string;
-  imageUrl?: string;
   notes?: string;
   createdAt: string;
 }
@@ -109,7 +108,6 @@ export interface Accessory {
   stockQuantity: number;
   minStockAlert: number;
   location?: string;
-  imageUrl?: string;
   variants?: ProductVariant[];
   hasVariants?: boolean;
   createdAt: string;

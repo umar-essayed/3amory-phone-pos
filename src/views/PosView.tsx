@@ -363,45 +363,31 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
                   <span>الهواتف المتاحة في المخزن ({filteredPhones.length})</span>
                 </h3>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-72 overflow-y-auto pr-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-56 overflow-y-auto pr-1">
                 {filteredPhones.map((phone) => (
                   <div
                     key={phone.id}
                     onClick={() => addPhoneToCart(phone)}
-                    className="p-3 rounded-xl border border-slate-200 hover:border-blue-500 hover:bg-blue-50/40 transition cursor-pointer flex items-center justify-between gap-3 group"
+                    className="p-3 rounded-xl border border-slate-200 hover:border-blue-500 hover:bg-blue-50/40 transition cursor-pointer flex items-center justify-between group"
                   >
-                    <div className="flex items-center gap-3">
-                      {phone.imageUrl ? (
-                        <img
-                          src={phone.imageUrl}
-                          alt={phone.name}
-                          className="h-12 w-12 rounded-lg object-cover border border-slate-200 shrink-0 shadow-2xs"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="h-12 w-12 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 shrink-0">
-                          <Smartphone className="h-6 w-6" />
-                        </div>
-                      )}
-                      <div>
-                        <div className="font-bold text-xs text-slate-900 group-hover:text-blue-700">
-                          {phone.name}
-                        </div>
-                        <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                          {phone.storage} | IMEI: {phone.imei1.slice(-6)}...
-                        </div>
-                        <span
-                          className={`inline-block mt-1 px-2 py-0.5 rounded text-[9px] font-bold ${
-                            phone.condition === 'new'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-purple-100 text-purple-800'
-                          }`}
-                        >
-                          {phone.condition === 'new' ? 'جديد' : 'مستعمل'}
-                        </span>
+                    <div>
+                      <div className="font-bold text-xs text-slate-900 group-hover:text-blue-700">
+                        {phone.name}
                       </div>
+                      <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                        {phone.storage} | IMEI: {phone.imei1.slice(-6)}...
+                      </div>
+                      <span
+                        className={`inline-block mt-1 px-2 py-0.5 rounded text-[9px] font-bold ${
+                          phone.condition === 'new'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-purple-100 text-purple-800'
+                        }`}
+                      >
+                        {phone.condition === 'new' ? 'جديد' : 'مستعمل'}
+                      </span>
                     </div>
-                    <div className="text-left font-mono font-black text-blue-700 text-sm shrink-0">
+                    <div className="text-left font-mono font-black text-blue-700 text-sm">
                       {phone.sellPrice.toLocaleString()} {settings?.currency || 'ج'}
                     </div>
                   </div>
@@ -418,7 +404,7 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
                 <span>الإكسسوارات والشواحن والسكرينات ({filteredAccessories.length})</span>
               </h3>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-96 overflow-y-auto pr-1">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-80 overflow-y-auto pr-1">
               {filteredAccessories.map((acc) => (
                 <div
                   key={acc.id}
@@ -426,16 +412,6 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
                   className="p-3 rounded-xl border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/30 transition cursor-pointer flex flex-col justify-between group"
                 >
                   <div>
-                    {acc.imageUrl && (
-                      <div className="h-24 w-full mb-2 rounded-lg overflow-hidden bg-slate-100 border border-slate-100">
-                        <img
-                          src={acc.imageUrl}
-                          alt={acc.name}
-                          className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                          loading="lazy"
-                        />
-                      </div>
-                    )}
                     <div className="flex items-center justify-between gap-1">
                       <span className="text-[9px] font-semibold text-slate-400 block truncate">
                         {acc.category}

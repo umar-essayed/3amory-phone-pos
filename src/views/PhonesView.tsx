@@ -281,17 +281,6 @@ export const PhonesView: React.FC = () => {
               }`}
             >
               <div>
-                {p.imageUrl && (
-                  <div className="relative w-full h-36 mb-3 rounded-xl overflow-hidden bg-slate-100 border border-slate-100 flex items-center justify-center">
-                    <img
-                      src={p.imageUrl}
-                      alt={p.name}
-                      className="w-full h-full object-cover transition duration-300 hover:scale-105"
-                      loading="lazy"
-                    />
-                  </div>
-                )}
-
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div>
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
