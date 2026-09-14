@@ -16,8 +16,9 @@ import {
   AlertCircle,
   Eye,
   CheckCircle,
+  Sparkles,
 } from 'lucide-react';
-import { db } from '../db';
+import { db, seedSampleData } from '../db';
 import { triggerPrint } from '../services/printer';
 import { useModal } from '../context/ModalContext';
 import type { Phone, StoreSettings } from '../types';
@@ -265,8 +266,24 @@ export const PhonesView: React.FC = () => {
       {/* Phones Grid / Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredPhones.length === 0 ? (
-          <div className="col-span-full py-16 text-center text-slate-400 bg-white rounded-2xl border border-slate-200 text-sm">
-            لا توجد هواتف مطابقة لخيارات البحث.
+          <div className="col-span-full py-16 text-center text-slate-400 bg-white rounded-2xl border border-slate-200 text-sm flex flex-col items-center justify-center gap-3">
+            <Smartphone className="h-10 w-10 text-slate-300" />
+            <p className="font-bold text-slate-600">
+              {phones.length === 0 ? 'لا توجد هواتف مسجلة بالمخزن حالياً' : 'لا توجد هواتف مطابقة لخيارات البحث.'}
+            </p>
+            {phones.length === 0 && (
+              <button
+                type="button"
+                onClick={async () => {
+                  await seedSampleData(true);
+                  showToast('تمت إضافة الهواتف التجريبية بنجاح!');
+                }}
+                className="mt-2 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-md transition cursor-pointer"
+              >
+                <Sparkles className="h-4 w-4" />
+                <span>⚡ تعبئة هواتف تجريبية (iPhone 15, S24, Redmi)</span>
+              </button>
+            )}
           </div>
         ) : (
           filteredPhones.map((p) => (

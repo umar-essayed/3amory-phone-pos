@@ -1,4 +1,5 @@
 import Dexie, { type Table } from 'dexie';
+import { SAMPLE_PHONES, SAMPLE_ACCESSORIES, SAMPLE_WALLETS } from './sampleData';
 import type {
   StoreSettings,
   User,
@@ -149,6 +150,19 @@ async function doInitializeDatabase() {
       await db.wallets.bulkDelete(mockWallets.map((w) => w.id));
     }
 
+    // Seed realistic sample phones & accessories for testing if empty
+    const currentPhonesCount = await db.phones.count();
+    const currentAccsCount = await db.accessories.count();
+    if (currentPhonesCount === 0 && currentAccsCount === 0) {
+      await seedSampleData(false);
+    }
+
+    // Seed initial store wallets if none exist
+    const currentWalletsCount = await db.wallets.count();
+    if (currentWalletsCount === 0) {
+      await db.wallets.bulkPut(SAMPLE_WALLETS);
+    }
+
     // Seed clean initial users (Admin & Cashier) if empty
     const usersCount = await db.users.count();
     if (usersCount === 0) {
@@ -247,3 +261,33 @@ export async function repairNegativeShifts(): Promise<void> {
     console.warn('Shift balance repair note:', err);
   }
 }
+
+/**
+ * Seeds or re-seeds sample phones, accessories with variants, and store wallets
+ */
+export async function seedSampleData(force = false): Promise<{ addedPhones: number; addedAccs: number; addedWallets: number }> {
+  let addedPhones = 0;
+  let addedAccs = 0;
+  let addedWallets = 0;
+
+  const currentPhones = await db.phones.count();
+  if (force || currentPhones === 0) {
+    await db.phones.bulkPut(SAMPLE_PHONES);
+    addedPhones = SAMPLE_PHONES.length;
+  }
+
+  const currentAccs = await db.accessories.count();
+  if (force || currentAccs === 0) {
+    await db.accessories.bulkPut(SAMPLE_ACCESSORIES);
+    addedAccs = SAMPLE_ACCESSORIES.length;
+  }
+
+  const currentWallets = await db.wallets.count();
+  if (force || currentWallets === 0) {
+    await db.wallets.bulkPut(SAMPLE_WALLETS);
+    addedWallets = SAMPLE_WALLETS.length;
+  }
+
+  return { addedPhones, addedAccs, addedWallets };
+}
+

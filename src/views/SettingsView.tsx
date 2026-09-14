@@ -18,8 +18,9 @@ import {
   Wifi,
   WifiOff,
   Server,
+  Sparkles,
 } from 'lucide-react';
-import { db } from '../db';
+import { db, seedSampleData } from '../db';
 import { triggerPrint, kickCashDrawer, buildEscPosReceiptBuffer } from '../services/printer';
 import { qzTrayService } from '../services/qzTrayService';
 import { syncDataToFirebase } from '../services/firebase';
@@ -265,6 +266,20 @@ export const SettingsView: React.FC = () => {
     reader.readAsText(file);
   };
 
+  const handleSeedDemoData = async () => {
+    const confirmed = await showConfirm(
+      'تعبئة بيانات ومنتجات تجريبية',
+      'هل تريد إضافة مجموعة هواتف وإكسسوارات بمتغيراتها ومحافظ تجريبية إلى قاعدة البيانات لتجربة الشراء والبيع والطباعة؟'
+    );
+    if (!confirmed) return;
+    try {
+      const res = await seedSampleData(true);
+      showToast(`تمت إضافة ${res.addedPhones} هواتف و ${res.addedAccs} إكسسوارات و ${res.addedWallets} محافظ تجريبية بنجاح! 🎉`);
+    } catch (err: any) {
+      showAlert('حدث خطأ أثناء إضافة البيانات التجريبية', err?.message || 'تعذر الإضافة');
+    }
+  };
+
   return (
     <div className="space-y-6 pb-12">
       {/* Header */}
@@ -281,13 +296,24 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
 
-        <button
-          onClick={handleSave}
-          className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 font-bold text-white shadow-md transition hover:bg-blue-700 active:scale-95 cursor-pointer"
-        >
-          <Save className="h-5 w-5" />
-          <span>حفظ التعديلات</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={handleSeedDemoData}
+            className="flex items-center justify-center gap-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 px-4 py-2.5 font-bold text-xs shadow-xs transition active:scale-95 cursor-pointer"
+          >
+            <Sparkles className="h-4 w-4 text-purple-600" />
+            <span>⚡ تعبئة بيانات تجريبية (هواتف وإكسسوارات)</span>
+          </button>
+
+          <button
+            onClick={handleSave}
+            className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-2.5 font-bold text-white shadow-md transition hover:bg-blue-700 active:scale-95 cursor-pointer text-xs sm:text-sm"
+          >
+            <Save className="h-4 w-4" />
+            <span>حفظ التعديلات</span>
+          </button>
+        </div>
       </div>
 
       {savedSuccess && (
@@ -1108,32 +1134,53 @@ export const SettingsView: React.FC = () => {
         {/* TAB 4: BACKUP & RESTORE */}
         {activeTab === 'backup' && (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Sample Data Card */}
+              <div className="rounded-2xl border-2 border-purple-200 bg-purple-50/40 p-6 flex flex-col justify-between shadow-xs">
+                <div>
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-purple-600 text-white mb-4 shadow-sm">
+                    <Sparkles className="h-6 w-6" />
+                  </div>
+                  <h4 className="font-bold text-base text-slate-900 mb-1">بيانات تجريبية وهمية (Demo Data)</h4>
+                  <p className="text-xs text-slate-500 leading-relaxed mb-4">
+                    إضافة 5 هواتف جديدة ومستعملة (iPhone 15 Pro Max, S24 Ultra, Redmi Note 13)، وإكسسوارات بمتغيراتها مع الباركود، ومحافظ فودافون كاش وإنستاباي لتجربة النظام بالكامل.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSeedDemoData}
+                  className="flex items-center justify-center gap-2 w-full rounded-xl bg-purple-600 hover:bg-purple-700 active:scale-95 text-white font-bold text-sm py-3 shadow transition cursor-pointer"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  <span>تعبئة الأجهزة والإكسسوارات للتجربة</span>
+                </button>
+              </div>
+
               {/* Export Card */}
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 flex flex-col justify-between">
                 <div>
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-600 text-white mb-4">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-600 text-white mb-4 shadow-sm">
                     <Download className="h-6 w-6" />
                   </div>
-                  <h4 className="font-bold text-base text-slate-800 mb-1">تصدير نسخة احتياطية كاملة (Backup)</h4>
+                  <h4 className="font-bold text-base text-slate-800 mb-1">تصدير نسخة احتياطية (Backup)</h4>
                   <p className="text-xs text-slate-500 leading-relaxed mb-4">
-                    قم بتحميل ملف JSON يحتوي على كامل قاعدة بيانات المحل (الأجهزة، الإكسسوارات، فودافون كاش، الصيانة، الفواتير، والورديات) وحفظها بأمان على فلاشة أو قرص خارجي.
+                    قم بتحميل ملف JSON يحتوي على كامل قاعدة بيانات المحل (الأجهزة، الإكسسوارات، فودافون كاش، الصيانة، الفواتير، والورديات) وحفظها بأمان.
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={handleExportBackup}
-                  className="flex items-center justify-center gap-2 w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm py-3 shadow transition cursor-pointer"
+                  className="flex items-center justify-center gap-2 w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-sm py-3 shadow transition cursor-pointer"
                 >
                   <Download className="h-4 w-4" />
-                  <span>تصدير وتحميل النسخة الاحتياطية</span>
+                  <span>تصدير وتحميل النسخة</span>
                 </button>
               </div>
 
               {/* Import Card */}
               <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-6 flex flex-col justify-between">
                 <div>
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-600 text-white mb-4">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-600 text-white mb-4 shadow-sm">
                     <ShieldAlert className="h-6 w-6" />
                   </div>
                   <h4 className="font-bold text-base text-slate-800 mb-1">استعادة نسخة احتياطية (Restore)</h4>
@@ -1141,7 +1188,7 @@ export const SettingsView: React.FC = () => {
                     حدد ملف النسخة الاحتياطية (JSON) لاسترجاع كافة المعاملات والبيانات المسجلة مسبقاً.
                   </p>
                 </div>
-                <label className="flex items-center justify-center gap-2 w-full rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm py-3 shadow transition cursor-pointer">
+                <label className="flex items-center justify-center gap-2 w-full rounded-xl bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold text-sm py-3 shadow transition cursor-pointer">
                   <RotateCcw className="h-4 w-4" />
                   <span>تحديد ملف النسخة للاستعادة</span>
                   <input type="file" accept=".json" onChange={handleImportBackup} className="hidden" />

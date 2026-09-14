@@ -19,8 +19,9 @@ import {
   Palette,
   ArrowUpRight,
   Filter,
+  Sparkles,
 } from 'lucide-react';
-import { db } from '../db';
+import { db, seedSampleData } from '../db';
 import { useModal } from '../context/ModalContext';
 import type { Accessory, ProductVariant } from '../types';
 
@@ -525,9 +526,26 @@ export const AccessoriesView: React.FC = () => {
                 <tr>
                   <td colSpan={8} className="py-16 text-center text-slate-400">
                     <Package className="h-10 w-10 mx-auto mb-2 opacity-30 text-slate-400" />
-                    <p className="font-bold">
-                      {filterLowStockOnly ? 'لا توجد أصناف ناقصة حالياً' : 'لا توجد أصناف مطابقة لعملية البحث.'}
+                    <p className="font-bold text-slate-600">
+                      {filterLowStockOnly
+                        ? 'لا توجد أصناف ناقصة حالياً'
+                        : accessories.length === 0
+                        ? 'لا توجد أصناف إكسسوارات مسجلة بالمخزن حالياً'
+                        : 'لا توجد أصناف مطابقة لعملية البحث.'}
                     </p>
+                    {accessories.length === 0 && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await seedSampleData(true);
+                          showToast('تمت إضافة الإكسسوارات التجريبية بنجاح!');
+                        }}
+                        className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-md transition cursor-pointer"
+                      >
+                        <Sparkles className="h-4 w-4" />
+                        <span>⚡ تعبئة إكسسوارات تجريبية بمتغيراتها (شواحن، كابلات، جرابات)</span>
+                      </button>
+                    )}
                   </td>
                 </tr>
               ) : (
