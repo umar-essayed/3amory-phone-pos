@@ -12,6 +12,9 @@ dist
 dist-ssr
 release
 release-assets
+*.AppImage
+*.exe
+*.blockmap
 *.local
 *firebase*.json
 *-adminsdk-*.json

@@ -1,5 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import { SAMPLE_PHONES, SAMPLE_ACCESSORIES, SAMPLE_WALLETS } from './sampleData';
+import { systemLogger } from '../services/logger';
 import type {
   StoreSettings,
   User,
@@ -114,6 +115,7 @@ export function initializeDatabase(): Promise<void> {
 
 async function doInitializeDatabase() {
   try {
+    await systemLogger.logInit('بدء فحص وتهيئة جداول قاعدة البيانات المحلية (Dexie IndexedDB)...');
     const existingSettings = await db.settings.get(1);
     if (!existingSettings) {
       await db.settings.put({ ...DEFAULT_SETTINGS, id: 1 });
@@ -223,8 +225,12 @@ async function doInitializeDatabase() {
 
     // Auto-heal any shifts that might have negative closingCashSystem
     await repairNegativeShifts();
-  } catch (error) {
+
+    await systemLogger.logInit('اكتملت تهيئة قاعدة البيانات المحلية بنجاح وجاهزة للاستخدام.');
+  } catch (error: any) {
     console.warn('Database initialization note:', error);
+    await systemLogger.logInit(`فشل في تهيئة قاعدة البيانات المحلية: ${error?.message || error}`, true, error);
+    await systemLogger.logError(`Dexie DB Initialization Error: ${error?.message || error}`, error, 'DatabaseInit');
   }
 }
 

@@ -9,9 +9,11 @@ import {
   Lock,
   LogOut,
   UserCheck,
+  FolderOpen,
 } from 'lucide-react';
 import { db } from '../db';
 import { syncDataToFirebase } from '../services/firebase';
+import { systemLogger } from '../services/logger';
 import { useModal } from '../context/ModalContext';
 
 interface HeaderProps {
@@ -123,6 +125,16 @@ export const Header: React.FC<HeaderProps> = ({
               <Cloud className="h-3.5 w-3.5" />
             )}
             <span className="hidden sm:inline">{syncing ? '...' : 'مزامنة سحابية'}</span>
+          </button>
+
+          {/* Open Logs Folder */}
+          <button
+            type="button"
+            onClick={() => systemLogger.openLogsFolder()}
+            title="فتح مجلد السجلات واللقطات (Logs & Invoices)"
+            className="p-2 rounded-xl border border-slate-200 bg-white text-slate-500 hover:bg-slate-100 hover:text-blue-600 transition cursor-pointer"
+          >
+            <FolderOpen className="h-4 w-4" />
           </button>
 
           {/* Settings Quick Access */}

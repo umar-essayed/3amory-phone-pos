@@ -7,6 +7,7 @@ import type {
   Shift,
   Accessory,
 } from '../types';
+import { systemLogger } from './logger';
 
 export type PrintDocumentType =
   | 'sale_receipt'
@@ -239,17 +240,40 @@ export async function kickCashDrawer(targetPrinterName?: string): Promise<boolea
 // Main Unified Print Trigger (QZ Tray Server -> Desktop Bridge -> Preview)
 // ═══════════════════════════════════════════════════════════════════════════
 export async function triggerPrint(printData: PrintData): Promise<void> {
+  const docInfo = `نوع: ${printData.type} | المحل: ${printData.settings.storeName}`;
+  await systemLogger.logPrinter({
+    message: `بدء معالجة أمر طباعة (${docInfo})`,
+    docType: printData.type,
+    printerName: printData.settings.paperSize,
+  });
+
   // 1. Check QZ Tray Server (Silent High-Speed Thermal Printing)
   const qzConfig = printData.settings.qzTrayConfig;
   if (qzConfig?.enabled) {
     try {
+      await systemLogger.logPrinter({
+        message: `محاولة إرسال أمر الطباعة المباشر عبر خادم QZ Tray (${qzConfig.printerName})`,
+        docType: printData.type,
+        printerName: qzConfig.printerName,
+      });
       const rawBuffer = buildEscPosReceiptBuffer(printData);
       const printed = await qzTrayService.printRaw(qzConfig.printerName, rawBuffer);
       if (printed) {
+        await systemLogger.logPrinter({
+          message: `تمت الطباعة بنجاح وبسرعة فائقة عبر QZ Tray`,
+          docType: printData.type,
+          printerName: qzConfig.printerName,
+        });
         return;
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn('QZ Tray print note (fallback to preview):', err);
+      await systemLogger.logPrinter({
+        message: `تعذر الاتصال بـ QZ Tray، سيتم التحويل للطباعة المحلية: ${err?.message || err}`,
+        isError: true,
+        docType: printData.type,
+        printerName: qzConfig?.printerName,
+      });
     }
   }
 
@@ -257,15 +281,35 @@ export async function triggerPrint(printData: PrintData): Promise<void> {
   const bridge = detectDesktopEnvironment();
   if (bridge.isDesktop && bridge.printRaw) {
     try {
+      await systemLogger.logPrinter({
+        message: 'محاولة الطباعة المباشرة عبر منفذ سطح المكتب الأصلي (Desktop Native Bridge)',
+        docType: printData.type,
+      });
       const rawBuffer = buildEscPosReceiptBuffer(printData);
       const printed = await bridge.printRaw(rawBuffer);
-      if (printed) return;
-    } catch (err) {
+      if (printed) {
+        await systemLogger.logPrinter({
+          message: 'تمت الطباعة بنجاح عبر مشغل سطح المكتب الأصلي',
+          docType: printData.type,
+        });
+        return;
+      }
+    } catch (err: any) {
       console.warn('Native desktop print fallback to preview:', err);
+      await systemLogger.logPrinter({
+        message: `تعذر استخدام مشغل سطح المكتب، تحويل للمعاينة: ${err?.message || err}`,
+        isError: true,
+        docType: printData.type,
+      });
     }
   }
 
   // 3. Fallback / standard: dispatch print event for custom preview & browser print
+  await systemLogger.logPrinter({
+    message: 'فتح نافذة معاينة الفاتورة للطباعة',
+    docType: printData.type,
+    printerName: printData.settings.paperSize,
+  });
   const event = new CustomEvent('mobile-pos-print', { detail: printData });
   window.dispatchEvent(event);
 }

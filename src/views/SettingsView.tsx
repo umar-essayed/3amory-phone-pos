@@ -19,11 +19,16 @@ import {
   WifiOff,
   Server,
   Sparkles,
+  FolderOpen,
+  Camera,
+  Terminal,
+  AlertCircle,
 } from 'lucide-react';
 import { db, seedSampleData } from '../db';
 import { triggerPrint, kickCashDrawer, buildEscPosReceiptBuffer } from '../services/printer';
 import { qzTrayService } from '../services/qzTrayService';
 import { syncDataToFirebase } from '../services/firebase';
+import { systemLogger } from '../services/logger';
 import { useModal } from '../context/ModalContext';
 import type { StoreSettings } from '../types';
 
@@ -37,7 +42,7 @@ export const SettingsView: React.FC = () => {
 
   const [formData, setFormData] = useState<StoreSettings | null>(null);
   const [savedSuccess, setSavedSuccess] = useState(false);
-  const [activeTab, setActiveTab] = useState<'store' | 'receipt' | 'commissions' | 'backup'>('store');
+  const [activeTab, setActiveTab] = useState<'store' | 'receipt' | 'commissions' | 'backup' | 'logs'>('store');
   const [simAmount, setSimAmount] = useState<number>(1000);
   const [qzStatus, setQzStatus] = useState(qzTrayService.getStatus());
   const [qzConnecting, setQzConnecting] = useState(false);
@@ -343,6 +348,17 @@ export const SettingsView: React.FC = () => {
         >
           <Download className="h-4 w-4" />
           <span>النسخ الاحتياطي والأمان</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('logs')}
+          className={`flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-bold transition whitespace-nowrap cursor-pointer ${
+            activeTab === 'logs'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <FolderOpen className="h-4 w-4" />
+          <span>سجلات النظام والتشغيل (Logs)</span>
         </button>
       </div>
 
@@ -1147,6 +1163,114 @@ export const SettingsView: React.FC = () => {
                   <span>تحديد ملف النسخة للاستعادة</span>
                   <input type="file" accept=".json" onChange={handleImportBackup} className="hidden" />
                 </label>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 5: System Logs & Audit Files */}
+        {activeTab === 'logs' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            {/* Header & Open Folder Action */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl bg-gradient-to-l from-slate-900 to-slate-800 p-6 text-white shadow-md">
+              <div className="flex items-center gap-4">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-600/30 text-blue-400 border border-blue-500/30 shrink-0">
+                  <Terminal className="h-7 w-7" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black tracking-tight">سجلات تشغيل النظام والطباعة والأخطاء</h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    يتم تخزين السجلات محلياً ومباشرة داخل مجلد <code className="bg-slate-950 px-2 py-0.5 rounded text-blue-300 font-mono">~/3amory-pos-logs/</code>
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => systemLogger.openLogsFolder()}
+                className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-bold text-sm px-6 py-3 shadow-lg shadow-blue-600/30 transition cursor-pointer shrink-0"
+              >
+                <FolderOpen className="h-5 w-5" />
+                <span>فتح مجلد السجلات في جهازك</span>
+              </button>
+            </div>
+
+            {/* 4 Dedicated Log Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* 1. Init and DB Log */}
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-5 hover:border-blue-300 transition flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="rounded-lg bg-blue-100 text-blue-800 text-xs font-black px-2.5 py-1">
+                      init-and-db.log
+                    </span>
+                    <span className="text-xs text-slate-400 font-medium">سجل التهيأة والقاعدة</span>
+                  </div>
+                  <h4 className="font-bold text-sm text-slate-900 mb-1.5">تهيئة النظام وقاعدة البيانات المحلية</h4>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    يسجل عمليات بدء تشغيل التطبيق، فتح جداول IndexedDB / Dexie، تهيئة الوردية الافتتاحية، وأي تعارضات أو أخطاء تطرأ أثناء التهيأة.
+                  </p>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-200/60 flex items-center justify-between text-xs text-slate-400">
+                  <span>المسار: <code className="font-mono text-slate-600">3amory-pos-logs/init-and-db.log</code></span>
+                </div>
+              </div>
+
+              {/* 2. Printer Log */}
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-5 hover:border-blue-300 transition flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="rounded-lg bg-emerald-100 text-emerald-800 text-xs font-black px-2.5 py-1">
+                      printer.log
+                    </span>
+                    <span className="text-xs text-slate-400 font-medium">سجل الطباعة الحرارية</span>
+                  </div>
+                  <h4 className="font-bold text-sm text-slate-900 mb-1.5">محاولات وعمليات الطباعة</h4>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    يسجل كافة أوامر الطباعة المباشرة والصامتة (ESC/POS)، الاتصال بخادم QZ Tray، واكتشاف الطابعات، وحالة نجاح أو فشل كل عملية طباعة.
+                  </p>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-200/60 flex items-center justify-between text-xs text-slate-400">
+                  <span>المسار: <code className="font-mono text-slate-600">3amory-pos-logs/printer.log</code></span>
+                </div>
+              </div>
+
+              {/* 3. Invoice Previews Directory */}
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-5 hover:border-blue-300 transition flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="rounded-lg bg-indigo-100 text-indigo-800 text-xs font-black px-2.5 py-1">
+                      invoice-previews/
+                    </span>
+                    <span className="text-xs text-slate-400 font-medium">مجلد لقطات الفواتير</span>
+                  </div>
+                  <h4 className="font-bold text-sm text-slate-900 mb-1.5">لقطات شاشة الفواتير المطبوعة (Screenshots)</h4>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    مجلد مخصص يتم فيه حفظ صورة شاشة عالية الدقة (.png) وملف HTML مستقل لكل فاتورة أو إيصال أو تقرير وردية يتم طباعته في المحل تلقائياً للرجوع إليه.
+                  </p>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-200/60 flex items-center justify-between text-xs text-slate-400">
+                  <span>المسار: <code className="font-mono text-slate-600">3amory-pos-logs/invoice-previews/</code></span>
+                </div>
+              </div>
+
+              {/* 4. System Errors Log */}
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-5 hover:border-blue-300 transition flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="rounded-lg bg-rose-100 text-rose-800 text-xs font-black px-2.5 py-1">
+                      system-errors.log
+                    </span>
+                    <span className="text-xs text-slate-400 font-medium">سجل أخطاء وتوقفات النظام</span>
+                  </div>
+                  <h4 className="font-bold text-sm text-slate-900 mb-1.5">تتبع الأعطال والاستثناءات (Crashes)</h4>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    يسجل فوراً أي خطأ برمجي غير متوقع في الواجهة أو في عمليات المعالجة أو في Electron مع بيانات الـ Stack كاملة لحل المشكلة فورياً.
+                  </p>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-200/60 flex items-center justify-between text-xs text-slate-400">
+                  <span>المسار: <code className="font-mono text-slate-600">3amory-pos-logs/system-errors.log</code></span>
+                </div>
               </div>
             </div>
           </div>

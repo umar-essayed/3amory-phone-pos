@@ -1,7 +1,7 @@
 {
   "name": "mobile-pos-pro",
   "productName": "3amory phone POS",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "3amory phone - Professional Mobile POS & Wallets Management System",
   "type": "module",
   "main": "electron/main.cjs",
@@ -26,6 +26,7 @@
     "dexie-react-hooks": "^4.4.0",
     "firebase": "^12.19.0",
     "firebase-admin": "^14.4.0",
+    "html2canvas": "^1.4.1",
     "jsbarcode": "^3.12.3",
     "lucide-react": "^1.45.0",
     "qrcode.react": "^4.2.0",

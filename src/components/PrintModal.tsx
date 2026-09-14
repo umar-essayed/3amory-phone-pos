@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Printer, X, Download, ShieldCheck } from 'lucide-react';
+import { Printer, X, Download, ShieldCheck, Camera, FolderOpen, CheckCircle } from 'lucide-react';
 import type { PrintData } from '../services/printer';
+import { systemLogger } from '../services/logger';
 
 export const PrintModal: React.FC = () => {
   const [activePrint, setActivePrint] = useState<PrintData | null>(null);
@@ -31,7 +32,41 @@ export const PrintModal: React.FC = () => {
       ? rollWidth
       : 'max-w-md sm:max-w-lg';
 
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [snapshotSaved, setSnapshotSaved] = useState(false);
+
+  const captureAndSaveSnapshot = async () => {
+    const printAreaEl = document.querySelector('.print-area') as HTMLElement;
+    if (!printAreaEl) return;
+    setIsCapturing(true);
+    try {
+      const invNumber = invoice?.invoiceNumber || walletTx?.id || repair?.ticketNumber || `DOC_${Date.now()}`;
+      await systemLogger.saveInvoiceSnapshot({
+        invoiceNumber: invNumber,
+        element: printAreaEl,
+        metadata: {
+          type,
+          timestamp: new Date().toISOString(),
+          cashier: invoice?.cashierName || shift?.cashierName,
+        },
+      });
+      setSnapshotSaved(true);
+      setTimeout(() => setSnapshotSaved(false), 3000);
+    } catch (err) {
+      console.warn('Snapshot capture note:', err);
+    } finally {
+      setIsCapturing(false);
+    }
+  };
+
   const handleExecutePrint = () => {
+    systemLogger.logPrinter({
+      message: 'تنفيذ أمر الطباعة وحفظ لقطة شاشة للفاتورة',
+      docType: type,
+      printerName: settings.paperSize,
+    });
+    // Concurrently trigger snapshot saving to invoice-previews/
+    captureAndSaveSnapshot();
     window.print();
   };
 
@@ -75,6 +110,28 @@ export const PrintModal: React.FC = () => {
                 </button>
               </div>
             )}
+
+            {/* Manual Screenshot button */}
+            <button
+              type="button"
+              onClick={captureAndSaveSnapshot}
+              disabled={isCapturing}
+              title="حفظ لقطة شاشة للفاتورة في مجلد السجلات (invoice-previews/)"
+              className="flex items-center gap-1.5 rounded-xl bg-slate-200/70 hover:bg-slate-300/80 px-3 py-2 text-xs font-bold text-slate-700 transition cursor-pointer"
+            >
+              {snapshotSaved ? <CheckCircle className="h-4 w-4 text-emerald-600" /> : <Camera className="h-4 w-4 text-slate-600" />}
+              <span className="hidden sm:inline">{snapshotSaved ? 'تم حفظ اللقطة!' : 'حفظ لقطة'}</span>
+            </button>
+
+            {/* Open logs folder button */}
+            <button
+              type="button"
+              onClick={() => systemLogger.openLogsFolder()}
+              title="فتح مجلد سجلات ولقطات الفواتير (~/3amory-pos-logs)"
+              className="rounded-xl p-2 text-slate-500 hover:bg-slate-200 hover:text-slate-800 transition cursor-pointer"
+            >
+              <FolderOpen className="h-4 w-4" />
+            </button>
 
             <button
               onClick={handleExecutePrint}

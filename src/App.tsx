@@ -19,6 +19,7 @@ import { AccountsView } from './views/AccountsView';
 import { SettingsView } from './views/SettingsView';
 import { UsersView } from './views/UsersView';
 import type { User } from './types';
+import { systemLogger } from './services/logger';
 
 export function App() {
   const [dbReady, setDbReady] = useState(false);
@@ -31,9 +32,14 @@ export function App() {
   const activeShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
 
   useEffect(() => {
+    systemLogger.logInit('React App component mounted. Initializing Dexie DB...');
     initializeDatabase()
+      .then(() => {
+        systemLogger.logInit('Database ready. Unlocking POS user interface.');
+      })
       .catch((err) => {
         console.warn('Init DB note:', err);
+        systemLogger.logInit(`Init DB warning: ${err}`, true, err);
       })
       .finally(() => {
         setDbReady(true);
@@ -42,10 +48,20 @@ export function App() {
 
   if (!dbReady) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-slate-900 text-white font-sans">
-        <div className="flex flex-col items-center gap-4">
-          <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-500 border-t-transparent"></div>
-          <p className="text-sm font-bold tracking-wide">جاري تشغيل قاعدة البيانات المحلية للمحل...</p>
+      <div className="flex h-screen w-screen flex-col items-center justify-center bg-slate-900 text-white font-sans select-none" dir="rtl">
+        <div className="relative flex items-center justify-center mb-6">
+          <div className="h-20 w-20 rounded-full border-4 border-blue-500/20 border-t-blue-500 border-r-blue-400 animate-spin"></div>
+          <div className="absolute h-14 w-14 rounded-2xl bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center shadow-lg shadow-blue-500/40">
+            <span className="text-xl font-black text-white font-serif">3P</span>
+          </div>
+        </div>
+        <h1 className="text-2xl font-black tracking-tight text-white mb-2">3amory phone</h1>
+        <div className="flex items-center gap-2 mb-6">
+          <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span className="text-xs text-slate-400 font-bold">جاري تشغيل البيئة وقاعدة البيانات المحلية للمحل...</span>
+        </div>
+        <div className="h-1.5 w-60 rounded-full bg-slate-800 overflow-hidden relative">
+          <div className="h-full bg-gradient-to-r from-blue-500 to-blue-400 rounded-full animate-pulse w-full"></div>
         </div>
       </div>
     );
