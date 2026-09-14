@@ -22,7 +22,11 @@ import { useModal } from '../context/ModalContext';
 import type { StoreSettings } from '../types';
 
 export const SettingsView: React.FC = () => {
-  const currentSettings = useLiveQuery(() => db.settings.get(1));
+  const currentSettings = useLiveQuery(async () => {
+    const s = await db.settings.get(1);
+    if (s) return s;
+    return await db.settings.toCollection().first();
+  });
   const { showAlert, showConfirm, showToast } = useModal();
 
   const [formData, setFormData] = useState<StoreSettings | null>(null);
@@ -55,10 +59,10 @@ export const SettingsView: React.FC = () => {
   const handleSave = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!formData) return;
-    await db.settings.put(formData);
+    await db.settings.put({ ...formData, id: 1 });
     syncDataToFirebase().catch(console.warn);
     setSavedSuccess(true);
-    showToast('تم حفظ إعدادات وهوية وقواعد المحل وتطبيقها بنجاح!');
+    showToast('تم حفظ إعدادات وقواعد المحل وتطبيقها فوراً في شاشة الكاش!');
     setTimeout(() => setSavedSuccess(false), 3000);
   };
 

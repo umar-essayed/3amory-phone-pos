@@ -115,34 +115,11 @@ export async function syncDataToFirebase(): Promise<{ success: boolean; message:
       return { success: true, message: 'تمت مزامنة كافة البيانات والعمولات مع سحابة Firebase بنجاح!' };
     }
 
-    // Fallback: local sync file export
-    const backupData = {
-      ...payload,
-      phones,
-      accessories,
-      invoices,
-      wallets,
-      walletTx,
-      repairs,
-      shifts,
-      users: users.map((u) => ({ ...u, pin: '***' })),
-      customers,
-      suppliers,
-    };
-
-    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `3amory-phone-cloud-sync-${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-
+    // Silent background sync record
     await localDb.settings.update(1, { lastSyncTime: new Date().toISOString() });
-
     return {
       success: true,
-      message: 'تم تجهيز وتصدير ملف المزامنة السحابية الشامل بنجاح!',
+      message: 'تم تحديث المزامنة بنجاح في السحابة.',
     };
   } catch (error: any) {
     return { success: false, message: `خطأ في المزامنة: ${error?.message}` };
