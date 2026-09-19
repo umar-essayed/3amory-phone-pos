@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// 3amory phone - High-Speed Offline-First 2-Way Cloud Sync Engine
+// الغندور فون (El Ghandour Phone) - High-Speed Offline-First 2-Way Cloud Sync Engine
 // Writes to local IndexedDB in 0ms, queues in background, and auto-syncs with Firebase
 // ═══════════════════════════════════════════════════════════════════════════
 

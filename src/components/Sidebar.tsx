@@ -11,6 +11,7 @@ import {
   Users,
   Settings,
   ShieldCheck,
+  Barcode,
 } from 'lucide-react';
 import { db } from '../db';
 
@@ -63,11 +64,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     },
     {
       id: 'accessories',
-      label: 'الإكسسوارات والباركود',
+      label: 'الإكسسوارات والمخزن',
       badge: lowStock > 0 ? `${lowStock} ناقص` : undefined,
       badgeColor: 'bg-red-500 text-white',
       icon: Tag,
       color: 'text-emerald-600',
+    },
+    {
+      id: 'barcode',
+      label: 'طباعة ملصقات الباركود',
+      icon: Barcode,
+      color: 'text-cyan-600',
     },
     {
       id: 'maintenance',

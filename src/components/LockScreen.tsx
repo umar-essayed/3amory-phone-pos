@@ -102,7 +102,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({ onLogin, logoUrl, storeN
   }, [selectedUser, pin]);
 
   const resolvedLogo = getStoreLogo(logoUrl || settings?.logoUrl);
-  const resolvedStoreName = storeName || settings?.storeName || '3amory phone';
+  const resolvedStoreName = storeName || settings?.storeName || 'الغندور فون';
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950 p-4 select-none font-sans overflow-hidden">

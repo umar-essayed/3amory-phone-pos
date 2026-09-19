@@ -39,12 +39,16 @@ export interface StoreSettings {
     instapayFeePerThousand: number; // عمولة إنستاباي لكل 1000 جنيه
     minInstapayFee: number;         // الحد الأدنى لعمولة إنستاباي
   };
+  selectedPrinter?: string;       // اسم طابعة الفواتير المحددة
+  silentPrintEnabled?: boolean;   // تفعيل الطباعة الصامتة المباشرة
+  barcodePrinter?: string;        // اسم طابعة ملصقات الباركود
+  barcodeLabelSize?: '38x25' | '50x25' | '50x30' | '40x30' | 'custom';
   qzTrayConfig?: {
-    enabled: boolean;
-    host: string;
-    port: number;
-    printerName: string;
-    autoPrint: boolean;
+    enabled?: boolean;
+    host?: string;
+    port?: number;
+    printerName?: string;
+    autoPrint?: boolean;
   };
 }
 

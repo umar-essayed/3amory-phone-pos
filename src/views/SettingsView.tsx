@@ -30,8 +30,7 @@ import {
   Play,
 } from 'lucide-react';
 import { db, seedSampleData } from '../db';
-import { triggerPrint, kickCashDrawer, buildEscPosReceiptBuffer } from '../services/printer';
-import { qzTrayService } from '../services/qzTrayService';
+import { triggerPrint, kickCashDrawer } from '../services/printer';
 import { syncDataToFirebase } from '../services/firebase';
 import { systemLogger } from '../services/logger';
 import { backupService } from '../services/backupService';
@@ -53,8 +52,6 @@ export const SettingsView: React.FC = () => {
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [activeTab, setActiveTab] = useState<'store' | 'receipt' | 'commissions' | 'backup' | 'logs'>('store');
   const [simAmount, setSimAmount] = useState<number>(1000);
-  const [qzStatus, setQzStatus] = useState(qzTrayService.getStatus());
-  const [qzConnecting, setQzConnecting] = useState(false);
   const [availablePrinters, setAvailablePrinters] = useState<DiscoveredPrinter[]>([]);
   const [scanningPrinters, setScanningPrinters] = useState(false);
   const [resettingDb, setResettingDb] = useState(false);
@@ -65,18 +62,11 @@ export const SettingsView: React.FC = () => {
     try {
       const list = await printerScanner.getAllPrinters();
       setAvailablePrinters(list);
-      if (list.length > 0 && formData && !formData.qzTrayConfig?.printerName) {
+      if (list.length > 0 && formData && !formData.selectedPrinter) {
         const defaultP = list.find((p) => p.isDefault) || list[0];
         setFormData((prev) => (prev ? {
           ...prev,
-          qzTrayConfig: {
-            ...prev.qzTrayConfig,
-            printerName: defaultP.name,
-            enabled: prev.qzTrayConfig?.enabled ?? true,
-            host: prev.qzTrayConfig?.host || 'localhost',
-            port: prev.qzTrayConfig?.port || 8182,
-            autoPrint: prev.qzTrayConfig?.autoPrint ?? false,
-          },
+          selectedPrinter: defaultP.name,
         } : null));
       }
     } catch (err) {
@@ -89,26 +79,6 @@ export const SettingsView: React.FC = () => {
   useEffect(() => {
     loadAllPrinters();
   }, []);
-
-  const handleLaunchQz = async () => {
-    const res = await printerScanner.launchQzTray();
-    if (res.success) {
-      showToast('تم تشغيل برنامج QZ Tray بنجاح! جاري فحص الاتصال...');
-      setTimeout(() => {
-        handleConnectAndRefreshQz();
-        loadAllPrinters();
-      }, 2000);
-    } else {
-      const wantDownload = await showConfirm(
-        'لم يتم العثور على برنامج QZ Tray مثبت في المسارات الافتراضية للجهاز. هل تريد فتح صفحة تحميل وتثبيت البرنامج رسمياً الآن؟',
-        'تشغيل QZ Tray',
-        { confirmText: 'تحميل الآن', cancelText: 'إلغاء' }
-      );
-      if (wantDownload) {
-        printerScanner.openQzDownloadPage();
-      }
-    }
-  };
 
   const handleManualBackupNow = async () => {
     const res = await backupService.saveManualBackup();
@@ -152,7 +122,7 @@ export const SettingsView: React.FC = () => {
       const res = await backupService.fullDatabaseResetWithMandatoryBackup();
       if (res.success) {
         await showAlert(
-          `تم تصفير وتنظيف قاعدة البيانات بنجاح!\nتم حفظ نسخة الأمان الإلزامية في مجلد النسخ الاحتياطية:\n${res.backupPath || '~/3amory-pos-backups/'}`,
+          `تم تصفير وتنظيف قاعدة البيانات بنجاح!\nتم حفظ نسخة الأمان الإلزامية في مجلد النسخ الاحتياطية:\n${res.backupPath || '~/elghandour-pos-backups/'}`,
           'تم التصفير بنجاح',
           'info'
         );
@@ -163,88 +133,6 @@ export const SettingsView: React.FC = () => {
     } finally {
       syncService.unmuteSync();
       setResettingDb(false);
-    }
-  };
-
-  useEffect(() => {
-    const unsub = qzTrayService.onStatusChange((status) => {
-      setQzStatus({ ...status });
-    });
-    return () => unsub();
-  }, []);
-
-  const handleConnectAndRefreshQz = async () => {
-    setQzConnecting(true);
-    try {
-      const ok = await qzTrayService.connect();
-      if (ok) {
-        const printers = await qzTrayService.refreshPrinters();
-        showToast(`تم الاتصال بـ QZ Tray! تم العثور على ${printers.length} طابعة.`);
-        if (printers.length > 0 && formData && !formData.qzTrayConfig?.printerName) {
-          setFormData({
-            ...formData,
-            qzTrayConfig: {
-              enabled: formData.qzTrayConfig?.enabled ?? true,
-              host: formData.qzTrayConfig?.host || 'localhost',
-              port: formData.qzTrayConfig?.port || 8182,
-              printerName: printers[0],
-              autoPrint: formData.qzTrayConfig?.autoPrint ?? false,
-            },
-          });
-        }
-      } else {
-        showAlert(
-          'تعذر الاتصال بـ QZ Tray',
-          'تأكد من تشغيل تطبيق QZ Tray على هذا الجهاز (يعمل افتراضياً على المنفذ ws://localhost:8182).'
-        );
-      }
-    } catch (err: any) {
-      showToast(`خطأ الاتصال: ${err?.message || 'غير معروف'}`);
-    } finally {
-      setQzConnecting(false);
-    }
-  };
-
-  const handleTestQzSilentPrint = async () => {
-    if (!formData) return;
-    try {
-      const rawData = buildEscPosReceiptBuffer({
-        type: 'sale_receipt',
-        invoice: {
-          id: 'test_qz',
-          invoiceNumber: 'TEST-QZ-001',
-          shiftId: 'shift_1',
-          cashierName: 'كاشير تجريبي',
-          customerName: 'عميل تجريبي',
-          customerPhone: '01012345678',
-          items: [
-            { itemId: '1', type: 'accessory', name: 'شاحن سريع 20W', quantity: 1, unitPrice: 250, totalPrice: 250, costPrice: 150 },
-            { itemId: '2', type: 'accessory', name: 'سماعة سلكية أصلية', quantity: 1, unitPrice: 100, totalPrice: 100, costPrice: 60 },
-          ],
-          subtotal: 350,
-          discount: 0,
-          tax: 0,
-          total: 350,
-          paidAmount: 350,
-          remainingAmount: 0,
-          paymentMethod: 'cash',
-          totalProfit: 140,
-          status: 'completed',
-          createdAt: new Date().toISOString(),
-        },
-        settings: formData,
-      });
-
-      const targetPrinter = formData.qzTrayConfig?.printerName || qzStatus.defaultPrinter || qzStatus.printers[0];
-      if (!targetPrinter) {
-        showAlert('تنبيه', 'يرجى كتابة أو اختيار اسم الطابعة المسجلة في QZ Tray.');
-        return;
-      }
-
-      await qzTrayService.printRaw(targetPrinter, rawData);
-      showToast('تم إرسال أمر الطباعة الصامتة عبر QZ Tray بنجاح! 🖨️');
-    } catch (err: any) {
-      showAlert('فشل الطباعة عبر QZ Tray', err?.message || 'تأكد من تشغيل برنامج QZ Tray وصلاحيات الطابعة.');
     }
   };
 
@@ -662,30 +550,23 @@ export const SettingsView: React.FC = () => {
               </div>
             </div>
 
-            {/* QZ Tray & Desktop Thermal Printer Engine Panel */}
+            {/* Hardware Printers Engine Panel (Native Desktop & OS Spooler) */}
             <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white shadow-md border border-slate-700/60 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-700/60">
                 <div className="flex items-center gap-3">
                   <div className="p-2.5 rounded-xl bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                    <Server className="h-5 w-5" />
+                    <Printer className="h-5 w-5" />
                   </div>
                   <div>
                     <h4 className="font-display font-bold text-sm text-white flex items-center gap-2">
-                      سيرفر الطباعة الحرارية الصامت (QZ Tray & ESC/POS)
-                      {qzStatus.connected ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                          متصل
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30">
-                          <span className="h-1.5 w-1.5 rounded-full bg-rose-400"></span>
-                          غير متصل
-                        </span>
-                      )}
+                      محرك طابعات الفواتير وملصقات الباركود
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+                        {availablePrinters.length} طابعة مكتشفة
+                      </span>
                     </h4>
                     <p className="text-xs text-slate-300 mt-0.5">
-                      طباعة صامتة فورية وسريعة جداً بدون نافذة المتصفح، مع دعم فتح درج الكاشير وقص الورق التلقائي.
+                      طباعة صامتة ومباشرة عبر طابعات النظام الرسمية مع دعم فتح درج الكاشير وطباعة الباركود.
                     </p>
                   </div>
                 </div>
@@ -693,108 +574,91 @@ export const SettingsView: React.FC = () => {
                 <div className="flex items-center gap-2 self-end sm:self-auto">
                   <button
                     type="button"
-                    onClick={handleConnectAndRefreshQz}
-                    disabled={qzConnecting}
+                    onClick={loadAllPrinters}
+                    disabled={scanningPrinters}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 font-bold text-xs transition cursor-pointer disabled:opacity-50"
                   >
-                    <RefreshCw className={`h-3.5 w-3.5 ${qzConnecting ? 'animate-spin text-blue-400' : ''}`} />
-                    <span>{qzConnecting ? 'جاري الفحص...' : 'فحص الاتصال والطابعات'}</span>
+                    <RefreshCw className={`h-3.5 w-3.5 ${scanningPrinters ? 'animate-spin text-blue-400' : ''}`} />
+                    <span>{scanningPrinters ? 'جاري الفحص...' : 'تحديث قائمة الطابعات'}</span>
                   </button>
                 </div>
               </div>
 
-              {/* QZ Tray Configuration */}
+              {/* Printer Selection Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-900/60 p-4 rounded-xl border border-slate-700/40 text-xs">
+                {/* 1. Thermal Receipt Printer */}
                 <div>
-                  <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-200 mb-2">
+                  <label className="block font-bold text-slate-200 mb-1.5">
+                    🖨️ طابعة إيصالات الكاشير الحرارية (80mm / 58mm)
+                  </label>
+                  <select
+                    value={formData.selectedPrinter || ''}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        selectedPrinter: e.target.value,
+                      })
+                    }
+                    className="w-full rounded-xl bg-slate-800 border border-slate-600 p-2.5 text-xs font-bold text-white focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="">-- الطابعة الافتراضية للنظام --</option>
+                    {availablePrinters.map((p) => (
+                      <option key={p.name} value={p.name}>
+                        {p.displayName} {p.isDefault ? '(الافتراضية)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    الطابعة المستخدمة في طباعة فواتير المبيعات وتقارير الوردية وإيصالات الصيانة.
+                  </p>
+                </div>
+
+                {/* 2. Barcode Label Printer */}
+                <div>
+                  <label className="block font-bold text-slate-200 mb-1.5">
+                    🏷️ طابعة ملصقات واستيكرات الباركود (Barcode Printer)
+                  </label>
+                  <select
+                    value={formData.barcodePrinter || ''}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        barcodePrinter: e.target.value,
+                      })
+                    }
+                    className="w-full rounded-xl bg-slate-800 border border-slate-600 p-2.5 text-xs font-bold text-white focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="">-- نفس طابعة الكاشير / افتراضية النظام --</option>
+                    {availablePrinters.map((p) => (
+                      <option key={p.name} value={p.name}>
+                        {p.displayName}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    طابعة الرول المخصصة لملصقات المنتجات (Xprinter, TSC, Zebra, Rongta, etc.).
+                  </p>
+                </div>
+
+                {/* 3. Silent Print Toggle */}
+                <div className="md:col-span-2 pt-2 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-200">
                     <input
                       type="checkbox"
-                      checked={formData.qzTrayConfig?.enabled ?? false}
+                      checked={formData.silentPrintEnabled ?? true}
                       onChange={(e) =>
                         setFormData({
                           ...formData,
-                          qzTrayConfig: {
-                            enabled: e.target.checked,
-                            host: formData.qzTrayConfig?.host || 'localhost',
-                            port: formData.qzTrayConfig?.port || 8182,
-                            printerName: formData.qzTrayConfig?.printerName || '',
-                            autoPrint: formData.qzTrayConfig?.autoPrint ?? false,
-                          },
+                          silentPrintEnabled: e.target.checked,
                         })
                       }
                       className="h-4 w-4 rounded text-blue-600 bg-slate-800 border-slate-600 focus:ring-0"
                     />
-                    <span>تفعيل سيرفر الطباعة الصامت QZ Tray</span>
+                    <span>تفعيل الطباعة الصامتة المباشرة (Direct Silent Print)</span>
                   </label>
-                  <p className="text-[11px] text-slate-400 leading-relaxed mr-6">
-                    عند التفعيل، تُرسل الفاتورة مباشرة إلى الطابعة بدون ظهور نافذة المتصفح (موصى به للديسكتوب ونقاط البيع السريعة).
-                  </p>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block font-bold text-slate-200">طابعة الكاشير المستهدفة (من طابعات الجهاز)</label>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={loadAllPrinters}
-                        disabled={scanningPrinters}
-                        title="إعادة فحص واكتشاف طابعات النظام"
-                        className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1 cursor-pointer"
-                      >
-                        <RefreshCw className={`h-3 w-3 ${scanningPrinters ? 'animate-spin' : ''}`} />
-                        <span>تحديث القائمة ({availablePrinters.length})</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <select
-                      value={formData.qzTrayConfig?.printerName || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          qzTrayConfig: {
-                            enabled: formData.qzTrayConfig?.enabled ?? true,
-                            host: formData.qzTrayConfig?.host || 'localhost',
-                            port: formData.qzTrayConfig?.port || 8182,
-                            printerName: e.target.value,
-                            autoPrint: formData.qzTrayConfig?.autoPrint ?? false,
-                          },
-                        })
-                      }
-                      className="w-full rounded-xl bg-slate-800 border border-slate-600 p-2.5 text-xs font-bold text-white focus:outline-none focus:border-blue-500"
-                    >
-                      <option value="">-- اختر طابعة الكاشير من القائمة --</option>
-                      {availablePrinters.map((p) => (
-                        <option key={p.name} value={p.name}>
-                          🖨️ {p.displayName}
-                        </option>
-                      ))}
-                      {/* If user previously had a printer name not in list, preserve it */}
-                      {formData.qzTrayConfig?.printerName &&
-                        !availablePrinters.some((p) => p.name === formData.qzTrayConfig?.printerName) && (
-                          <option value={formData.qzTrayConfig.printerName}>
-                            🖨️ {formData.qzTrayConfig.printerName} (المحفوظة مسبقاً)
-                          </option>
-                        )}
-                    </select>
-
-                    <button
-                      type="button"
-                      onClick={handleLaunchQz}
-                      title="تشغيل خادم الطباعة QZ Tray تلقائياً"
-                      className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1 shrink-0 cursor-pointer shadow"
-                    >
-                      <Play className="h-3.5 w-3.5 fill-current" />
-                      <span className="hidden sm:inline">تشغيل QZ</span>
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    {availablePrinters.length > 0
-                      ? 'تم اكتشاف الطابعات المتصلة بنظام التشغيل تلقائياً. اختر طابعة الإيصالات الحرارية الخاصة بك.'
-                      : 'اضغط "تحديث القائمة" أو شغّل QZ Tray لاكتشاف كافة طابعات الكاشير المتصلة.'}
-                  </p>
+                  <span className="text-[11px] text-slate-400">
+                    طباعة فورية إلى طابعات الكاشير والباركود بدون فتح نوافذ منبثقة أو حوارات اختيار الطابعة.
+                  </span>
                 </div>
               </div>
 
@@ -803,11 +667,11 @@ export const SettingsView: React.FC = () => {
                 <button
                   type="button"
                   onClick={async () => {
-                    const kicked = await kickCashDrawer(formData.qzTrayConfig?.printerName);
+                    const kicked = await kickCashDrawer(formData.selectedPrinter);
                     if (kicked) {
                       showToast('تم إرسال نبضة فتح درج الكاشير بنجاح! ⚡');
                     } else {
-                      showToast('تم إرسال أمر فتح الدرج عبر وسيط الطباعة');
+                      showToast('تم إرسال أمر فتح الدرج عبر الطابعة');
                     }
                   }}
                   className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 font-bold text-xs transition cursor-pointer flex items-center gap-1.5"
@@ -815,17 +679,6 @@ export const SettingsView: React.FC = () => {
                   <Zap className="h-3.5 w-3.5 text-amber-400" />
                   <span>فتح درج الكاشير</span>
                 </button>
-
-                {formData.qzTrayConfig?.enabled && (
-                  <button
-                    type="button"
-                    onClick={handleTestQzSilentPrint}
-                    className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition cursor-pointer flex items-center gap-1.5"
-                  >
-                    <Printer className="h-3.5 w-3.5" />
-                    <span>طباعة تجريبية صامتة (QZ Tray)</span>
-                  </button>
-                )}
 
                 <button
                   type="button"
@@ -860,10 +713,11 @@ export const SettingsView: React.FC = () => {
                   className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition cursor-pointer flex items-center gap-1.5"
                 >
                   <Printer className="h-3.5 w-3.5" />
-                  <span>معاينة إيصال تجريبي</span>
+                  <span>طباعة فاتورة تجريبية</span>
                 </button>
               </div>
             </div>
+
 
             <div className="space-y-4">
               <div>
@@ -1256,7 +1110,7 @@ export const SettingsView: React.FC = () => {
                 <div>
                   <h3 className="text-base font-black tracking-tight">مسار قاعدة البيانات والنسخ الاحتياطية</h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    البيانات مستقرة في مسار دائم: <code className="bg-slate-950 px-2 py-0.5 rounded text-emerald-300 font-mono">~/.3amory-pos-data/</code> لا تتأثر بتحديث التطبيق.
+                    البيانات مستقرة في مسار دائم: <code className="bg-slate-950 px-2 py-0.5 rounded text-emerald-300 font-mono">~/.elghandour-pos-data/</code> لا تتأثر بتحديث التطبيق.
                   </p>
                 </div>
               </div>
@@ -1273,7 +1127,7 @@ export const SettingsView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => backupService.openBackupsFolder()}
-                  title="فتح مجلد النسخ الاحتياطية (~/3amory-pos-backups/)"
+                  title="فتح مجلد النسخ الاحتياطية (~/elghandour-pos-backups/)"
                   className="flex items-center gap-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 font-bold text-xs px-3 py-2.5 transition cursor-pointer"
                 >
                   <FolderOpen className="h-4 w-4" />
@@ -1396,7 +1250,7 @@ export const SettingsView: React.FC = () => {
                 <div>
                   <h3 className="text-lg font-black tracking-tight">سجلات تشغيل النظام والطباعة والأخطاء</h3>
                   <p className="text-xs text-slate-400 mt-1">
-                    يتم تخزين السجلات محلياً ومباشرة داخل مجلد <code className="bg-slate-950 px-2 py-0.5 rounded text-blue-300 font-mono">~/3amory-pos-logs/</code>
+                    يتم تخزين السجلات محلياً ومباشرة داخل مجلد <code className="bg-slate-950 px-2 py-0.5 rounded text-blue-300 font-mono">~/elghandour-pos-logs/</code>
                   </p>
                 </div>
               </div>
@@ -1428,7 +1282,7 @@ export const SettingsView: React.FC = () => {
                   </p>
                 </div>
                 <div className="mt-4 pt-3 border-t border-slate-200/60 flex items-center justify-between text-xs text-slate-400">
-                  <span>المسار: <code className="font-mono text-slate-600">3amory-pos-logs/init-and-db.log</code></span>
+                  <span>المسار: <code className="font-mono text-slate-600">elghandour-pos-logs/init-and-db.log</code></span>
                 </div>
               </div>
 
@@ -1443,11 +1297,11 @@ export const SettingsView: React.FC = () => {
                   </div>
                   <h4 className="font-bold text-sm text-slate-900 mb-1.5">محاولات وعمليات الطباعة</h4>
                   <p className="text-xs text-slate-500 leading-relaxed">
-                    يسجل كافة أوامر الطباعة المباشرة والصامتة (ESC/POS)، الاتصال بخادم QZ Tray، واكتشاف الطابعات، وحالة نجاح أو فشل كل عملية طباعة.
+                    يسجل كافة أوامر الطباعة المباشرة والصامتة (ESC/POS)، واكتشاف الطابعات، وحالة نجاح أو فشل كل عملية طباعة.
                   </p>
                 </div>
                 <div className="mt-4 pt-3 border-t border-slate-200/60 flex items-center justify-between text-xs text-slate-400">
-                  <span>المسار: <code className="font-mono text-slate-600">3amory-pos-logs/printer.log</code></span>
+                  <span>المسار: <code className="font-mono text-slate-600">elghandour-pos-logs/printer.log</code></span>
                 </div>
               </div>
 
@@ -1466,7 +1320,7 @@ export const SettingsView: React.FC = () => {
                   </p>
                 </div>
                 <div className="mt-4 pt-3 border-t border-slate-200/60 flex items-center justify-between text-xs text-slate-400">
-                  <span>المسار: <code className="font-mono text-slate-600">3amory-pos-logs/invoice-previews/</code></span>
+                  <span>المسار: <code className="font-mono text-slate-600">elghandour-pos-logs/invoice-previews/</code></span>
                 </div>
               </div>
 
@@ -1485,7 +1339,7 @@ export const SettingsView: React.FC = () => {
                   </p>
                 </div>
                 <div className="mt-4 pt-3 border-t border-slate-200/60 flex items-center justify-between text-xs text-slate-400">
-                  <span>المسار: <code className="font-mono text-slate-600">3amory-pos-logs/system-errors.log</code></span>
+                  <span>المسار: <code className="font-mono text-slate-600">elghandour-pos-logs/system-errors.log</code></span>
                 </div>
               </div>
             </div>

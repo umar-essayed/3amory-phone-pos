@@ -128,7 +128,7 @@ export const PrintModal: React.FC = () => {
             <button
               type="button"
               onClick={() => systemLogger.openLogsFolder()}
-              title="فتح مجلد سجلات ولقطات الفواتير (~/3amory-pos-logs)"
+              title="فتح مجلد سجلات ولقطات الفواتير (~/elghandour-pos-logs)"
               className="rounded-xl p-2 text-slate-500 hover:bg-slate-200 hover:text-slate-800 transition cursor-pointer"
             >
               <FolderOpen className="h-4 w-4" />

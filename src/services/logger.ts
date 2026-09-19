@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// 3amory phone - System Logger & Audit Trail Service
+// الغندور فون (El Ghandour Phone) - System Logger & Audit Trail Service
 // Manages Desktop & Web logging across:
 // 1. init-and-db.log (Database, Migrations, Application Startup)
 // 2. printer.log (Thermal, QZ Tray, Silent Printing, Cash Drawer)
@@ -183,7 +183,7 @@ class SystemLogger {
         console.warn('Failed to open logs folder:', err);
       }
     } else {
-      alert('مجلد السجلات متاح على نسخة سطح المكتب (Windows / Linux) في مسار: ~/3amory-pos-logs');
+      alert('مجلد السجلات متاح على نسخة سطح المكتب (Windows / Linux) في مسار: ~/elghandour-pos-logs');
     }
     return false;
   }

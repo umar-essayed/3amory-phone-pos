@@ -150,7 +150,7 @@ export function buildEscPosReceiptBuffer(printData: PrintData): Uint8Array {
   // 3. Header
   append(ESC_POS.ALIGN_CENTER);
   append(ESC_POS.DOUBLE_SIZE_ON);
-  appendText(printData.settings.storeName || '3amory phone');
+  appendText(printData.settings.storeName || 'الغندور فون');
   append(ESC_POS.DOUBLE_SIZE_OFF);
 
   if (printData.settings.phone1) {
@@ -215,31 +215,27 @@ export function buildEscPosReceiptBuffer(printData: PrintData): Uint8Array {
   return result;
 }
 
-import { qzTrayService } from './qzTrayService';
-
 // ═══════════════════════════════════════════════════════════════════════════
 // Cash Drawer Kick Command (Open Drawer)
 // ═══════════════════════════════════════════════════════════════════════════
 export async function kickCashDrawer(targetPrinterName?: string): Promise<boolean> {
-  // 1. Try QZ Tray Server
-  try {
-    const qzSuccess = await qzTrayService.kickCashDrawer(targetPrinterName);
-    if (qzSuccess) return true;
-  } catch {}
-
-  // 2. Try Desktop Bridge (Electron / Tauri / Serial)
   const bridge = detectDesktopEnvironment();
   if (bridge.kickDrawer) {
-    return bridge.kickDrawer();
+    try {
+      const res = await bridge.kickDrawer();
+      if (res) return true;
+    } catch {}
   }
   if (bridge.printRaw) {
-    return bridge.printRaw(ESC_POS.DRAWER_KICK);
+    try {
+      return await bridge.printRaw(ESC_POS.DRAWER_KICK);
+    } catch {}
   }
   return false;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Main Unified Print Trigger (QZ Tray Server -> Desktop Bridge -> Preview)
+// Main Unified Print Trigger (Desktop Native Bridge -> Print Preview Modal)
 // ═══════════════════════════════════════════════════════════════════════════
 export async function triggerPrint(printData: PrintData): Promise<void> {
   const docInfo = `نوع: ${printData.type} | المحل: ${printData.settings.storeName}`;
@@ -249,39 +245,39 @@ export async function triggerPrint(printData: PrintData): Promise<void> {
     printerName: printData.settings.paperSize,
   });
 
-  // 1. Check QZ Tray Server (Silent High-Speed Thermal Printing)
-  const qzConfig = printData.settings.qzTrayConfig;
-  if (qzConfig?.enabled) {
-    try {
-      await systemLogger.logPrinter({
-        message: `محاولة إرسال أمر الطباعة المباشر عبر خادم QZ Tray (${qzConfig.printerName})`,
-        docType: printData.type,
-        printerName: qzConfig.printerName,
-      });
-      const rawBuffer = buildEscPosReceiptBuffer(printData);
-      const printed = await qzTrayService.printRaw(qzConfig.printerName, rawBuffer);
-      if (printed) {
-        await systemLogger.logPrinter({
-          message: `تمت الطباعة بنجاح وبسرعة فائقة عبر QZ Tray`,
-          docType: printData.type,
-          printerName: qzConfig.printerName,
-        });
-        return;
-      }
-    } catch (err: any) {
-      console.warn('QZ Tray print note (fallback to preview):', err);
-      await systemLogger.logPrinter({
-        message: `تعذر الاتصال بـ QZ Tray، سيتم التحويل للطباعة المحلية: ${err?.message || err}`,
-        isError: true,
-        docType: printData.type,
-        printerName: qzConfig?.printerName,
-      });
-    }
-  }
+  const selectedPrinterName =
+    printData.settings.selectedPrinter ||
+    (printData.settings as any).printerName ||
+    '';
 
-  // 2. If running in Desktop mode, attempt direct raw or native silent print
+  const isSilentEnabled =
+    printData.settings.silentPrintEnabled ||
+    (printData.settings.autoPrintReceipt && !!selectedPrinterName);
+
+  // 1. If running in Desktop mode and silent print is requested, attempt direct OS silent print
   const bridge = detectDesktopEnvironment();
-  if (bridge.isDesktop) {
+  if (bridge.isDesktop && isSilentEnabled) {
+    if (bridge.printSilent) {
+      try {
+        await systemLogger.logPrinter({
+          message: `محاولة الطباعة الصامتة المباشرة لنظام التشغيل على الطابعة: ${selectedPrinterName || 'الافتراضية'}`,
+          docType: printData.type,
+          printerName: selectedPrinterName,
+        });
+        const printed = await bridge.printSilent({ deviceName: selectedPrinterName });
+        if (printed) {
+          await systemLogger.logPrinter({
+            message: 'تمت الطباعة الصامتة بنجاح عبر نظام التشغيل',
+            docType: printData.type,
+            printerName: selectedPrinterName,
+          });
+          return;
+        }
+      } catch (err: any) {
+        console.warn('Native printSilent fallback note:', err);
+      }
+    }
+
     if (bridge.printRaw) {
       try {
         await systemLogger.logPrinter({
@@ -301,30 +297,9 @@ export async function triggerPrint(printData: PrintData): Promise<void> {
         console.warn('Native desktop print fallback:', err);
       }
     }
-
-    if (bridge.printSilent && qzConfig?.enabled) {
-      try {
-        await systemLogger.logPrinter({
-          message: `محاولة الطباعة الصامتة المباشرة لنظام التشغيل على الطابعة: ${qzConfig.printerName || 'الافتراضية'}`,
-          docType: printData.type,
-          printerName: qzConfig.printerName,
-        });
-        const printed = await bridge.printSilent({ deviceName: qzConfig.printerName });
-        if (printed) {
-          await systemLogger.logPrinter({
-            message: 'تمت الطباعة الصامتة بنجاح عبر نظام التشغيل',
-            docType: printData.type,
-            printerName: qzConfig.printerName,
-          });
-          return;
-        }
-      } catch (err: any) {
-        console.warn('Native printSilent fallback note:', err);
-      }
-    }
   }
 
-  // 3. Fallback / standard: dispatch print event for custom preview & browser print
+  // 2. Fallback / standard: dispatch print event for custom preview & browser print
   await systemLogger.logPrinter({
     message: 'فتح نافذة معاينة الفاتورة للطباعة',
     docType: printData.type,

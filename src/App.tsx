@@ -18,11 +18,11 @@ import { AnalyticsView } from './views/AnalyticsView';
 import { AccountsView } from './views/AccountsView';
 import { SettingsView } from './views/SettingsView';
 import { UsersView } from './views/UsersView';
+import { BarcodeView } from './views/BarcodeView';
 import type { User } from './types';
 import { systemLogger } from './services/logger';
 import { syncService, attachDexieSyncHooks } from './services/syncService';
 import { backupService } from './services/backupService';
-import { printerScanner } from './services/printerScanner';
 
 export function App() {
   const [dbReady, setDbReady] = useState(false);
@@ -52,9 +52,6 @@ export function App() {
         // 4. Start background queue processor worker
         syncService.startSyncWorker();
 
-        // 5. Auto-launch QZ Tray if installed on machine
-        printerScanner.launchQzTray().catch(() => {});
-
         systemLogger.logInit('Database and background sync services ready.');
       })
       .catch((err) => {
@@ -72,10 +69,10 @@ export function App() {
         <div className="relative flex items-center justify-center mb-6">
           <div className="h-20 w-20 rounded-full border-4 border-blue-500/20 border-t-blue-500 border-r-blue-400 animate-spin"></div>
           <div className="absolute h-14 w-14 rounded-2xl bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center shadow-lg shadow-blue-500/40">
-            <span className="text-xl font-black text-white font-serif">3P</span>
+            <span className="text-xl font-black text-white font-serif">GP</span>
           </div>
         </div>
-        <h1 className="text-2xl font-black tracking-tight text-white mb-2">3amory phone</h1>
+        <h1 className="text-2xl font-black tracking-tight text-white mb-2">الغندور فون</h1>
         <div className="flex items-center gap-2 mb-6">
           <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
           <span className="text-xs text-slate-400 font-bold">جاري تشغيل البيئة وقاعدة البيانات المحلية للمحل...</span>
@@ -127,6 +124,7 @@ export function App() {
             )}
             {activeTab === 'phones' && <PhonesView />}
             {activeTab === 'accessories' && <AccessoriesView />}
+            {activeTab === 'barcode' && <BarcodeView />}
             {activeTab === 'maintenance' && (
               <MaintenanceView activeShiftId={shiftId} cashierName={currentCashier} />
             )}

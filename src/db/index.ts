@@ -58,8 +58,8 @@ export const db = new MobilePosDatabase();
 // Default initial settings - 100% customizable by the user
 export const DEFAULT_SETTINGS: StoreSettings = {
   id: 1,
-  storeName: '3amory phone',
-  storeNameEn: '3amory phone',
+  storeName: 'الغندور فون',
+  storeNameEn: 'El Ghandour Phone',
   phone1: '',
   phone2: '',
   whatsapp: '',
@@ -67,8 +67,8 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   taxNumber: '',
   commercialReg: '',
   logoUrl: '/logo-removebg-preview.png',
-  receiptHeader: '3amory phone - أهلاً بكم - خدمة متميزة وضمان حقيقي',
-  receiptFooter: 'شكراً لتعاملكم مع 3amory phone ونتشرف بزيارتكم دائماً',
+  receiptHeader: 'الغندور فون - أهلاً بكم - خدمة متميزة وضمان حقيقي',
+  receiptFooter: 'شكراً لتعاملكم مع الغندور فون ونتشرف بزيارتكم دائماً',
   receiptNotes: 'البضاعة المباعة ترد وتستبدل خلال 14 يوماً بالفاتورة وحالتها الأصلية.',
   usedPhoneLegalDisclaimer: 'يقر البائع بكامل أهليته المعتبرة قانوناً بأن الهاتف المذكور ملكه الخالص وليس متحصل من جريمة أو مشبوه، ويتحمل كامل المسؤولية القانونية.',
   maintenanceTerms: 'المحل غير مسؤول عن الأجهزة التي يمر على إصلاحها أكثر من 30 يوماً دون استلام.',
@@ -76,6 +76,10 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   paperSize: '80mm',
   autoPrintReceipt: true,
   showImeiOnReceipt: true,
+  selectedPrinter: '',
+  silentPrintEnabled: false,
+  barcodePrinter: '',
+  barcodeLabelSize: '50x25',
   firebaseConfig: {
     apiKey: '',
     authDomain: '',
@@ -93,13 +97,6 @@ export const DEFAULT_SETTINGS: StoreSettings = {
     minWithdrawFee: 5,
     instapayFeePerThousand: 5,
     minInstapayFee: 5,
-  },
-  qzTrayConfig: {
-    enabled: false,
-    host: 'localhost',
-    port: 8182,
-    printerName: '',
-    autoPrint: false,
   },
 };
 
@@ -124,9 +121,21 @@ async function doInitializeDatabase() {
       if (existingSettings.logoUrl === '/logo.jpeg' || !existingSettings.logoUrl) {
         updates.logoUrl = '/logo-removebg-preview.png';
       }
-      if (!existingSettings.storeName || existingSettings.storeName === 'محل الهواتف الذكية' || existingSettings.storeName.includes('البرنس')) {
-        updates.storeName = '3amory phone';
-        updates.storeNameEn = '3amory phone';
+      if (
+        !existingSettings.storeName ||
+        existingSettings.storeName === '3amory phone' ||
+        existingSettings.storeName.includes('عموري') ||
+        existingSettings.storeName === 'محل الهواتف الذكية' ||
+        existingSettings.storeName.includes('البرنس')
+      ) {
+        updates.storeName = 'الغندور فون';
+        updates.storeNameEn = 'El Ghandour Phone';
+      }
+      if (existingSettings.receiptHeader?.includes('3amory phone') || existingSettings.receiptHeader?.includes('عموري')) {
+        updates.receiptHeader = 'الغندور فون - أهلاً بكم - خدمة متميزة وضمان حقيقي';
+      }
+      if (existingSettings.receiptFooter?.includes('3amory phone') || existingSettings.receiptFooter?.includes('عموري')) {
+        updates.receiptFooter = 'شكراً لتعاملكم مع الغندور فون ونتشرف بزيارتكم دائماً';
       }
       if (!existingSettings.commissionRules) {
         updates.commissionRules = DEFAULT_SETTINGS.commissionRules;

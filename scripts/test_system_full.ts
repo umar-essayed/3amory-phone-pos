@@ -5,7 +5,7 @@ import type { SaleInvoice, Shift, StoreSettings, Phone, Accessory, WalletTransac
 
 async function runFullSystemTest() {
   console.log('═════════════════════════════════════════════════════════════════');
-  console.log('🧪 بدء الفحص الشامل لنظام Mobile POS Pro ("3amory phone")');
+  console.log('🧪 بدء الفحص الشامل لنظام El Ghandour Phone POS ("الغندور فون")');
   console.log('═════════════════════════════════════════════════════════════════\n');
 
   let passedTests = 0;
@@ -30,7 +30,7 @@ async function runFullSystemTest() {
 
   const settings = await db.settings.get(1);
   assert(!!settings, 'تحميل إعدادات المحل بنجاح');
-  assert(settings?.storeName === '3amory phone', 'الاسم الافتراضي للمحل هو 3amory phone', settings?.storeName);
+  assert(settings?.storeName === 'الغندور فون', 'الاسم الافتراضي للمحل هو الغندور فون', settings?.storeName);
   assert(settings?.logoUrl === '/logo-removebg-preview.png', 'اللوجو الافتراضي هو اللوجو الشفاف');
 
   // Verify no mock data
@@ -386,7 +386,7 @@ async function runFullSystemTest() {
     updatedAt: new Date().toISOString(),
   };
 
-  assert(syncPayload.storeName === '3amory phone', 'تضمين هوية المحل في مزامنة Firebase');
+  assert(syncPayload.storeName === 'الغندور فون', 'تضمين هوية المحل في مزامنة Firebase');
   assert(syncPayload.projectId === 'mobile-pos-2947e', 'مشروع Firebase المعتمد mobile-pos-2947e');
   assert(!!syncPayload.commissionRules, 'مزامنة قواعد العمولات سحابياً');
   // ─────────────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// 3amory phone - Logo & Brand Assets Resolver
+// الغندور فون (El Ghandour Phone) - Logo & Brand Assets Resolver
 // ═══════════════════════════════════════════════════════════════════════════
 
 import defaultLogoAsset from '../assets/logo-removebg-preview.png';

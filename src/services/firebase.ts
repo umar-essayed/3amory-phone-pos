@@ -63,7 +63,7 @@ export async function syncDataToFirebase(): Promise<{ success: boolean; message:
 
     const payload = {
       updatedAt: new Date().toISOString(),
-      storeName: settings?.storeName || '3amory phone',
+      storeName: settings?.storeName || 'الغندور فون',
       projectId: FIREBASE_CONFIG.projectId,
       settings: settings || null,
       commissionRules: settings?.commissionRules || null,

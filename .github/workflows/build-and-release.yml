@@ -1,4 +1,4 @@
-name: Build & Release 3amory phone POS
+name: Build & Release El Ghandour Phone POS
 
 on:
   push:

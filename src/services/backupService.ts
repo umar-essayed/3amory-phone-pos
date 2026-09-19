@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// 3amory phone - Backup, Restore & Persistent Mirror Management Service
+// الغندور فون (El Ghandour Phone) - Backup, Restore & Persistent Mirror Management Service
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { db, DEFAULT_SETTINGS } from '../db';
@@ -44,7 +44,7 @@ export class BackupService {
     return {
       exportDate: new Date().toISOString(),
       version: '1.0.1',
-      storeName: settings[0]?.storeName || '3amory phone',
+      storeName: settings[0]?.storeName || 'الغندور فون',
       settings,
       users,
       phones,
@@ -61,13 +61,13 @@ export class BackupService {
   }
 
   /**
-   * Saves a manual backup snapshot to ~/3amory-pos-backups/ and offers browser download
+   * Saves a manual backup snapshot to ~/elghandour-pos-backups/ and offers browser download
    */
   public async saveManualBackup(): Promise<{ success: boolean; path?: string; filename: string }> {
     const data = await this.exportFullDatabaseSnapshot();
     const dateStr = new Date().toISOString().slice(0, 10);
     const timeStr = new Date().toISOString().slice(11, 19).replace(/:/g, '-');
-    const filename = `3amory_backup_manual_${dateStr}_${timeStr}.json`;
+    const filename = `elghandour_backup_manual_${dateStr}_${timeStr}.json`;
     const jsonStr = JSON.stringify(data, null, 2);
 
     let savedPath: string | undefined;
@@ -273,7 +273,7 @@ export class BackupService {
         return false;
       }
     } else {
-      alert('مجلد النسخ الاحتياطية على جهازك: ~/3amory-pos-backups/');
+      alert('مجلد النسخ الاحتياطية على جهازك: ~/elghandour-pos-backups/');
       return false;
     }
   }

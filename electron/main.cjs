@@ -9,9 +9,25 @@ const child_process = require('child_process');
 // Guaranteed NOT to be wiped when updating .exe, AppImage, or reinstalling.
 // ═══════════════════════════════════════════════════════════════════════════
 const homeDir = app.getPath('home');
-const persistentDataDir = path.join(homeDir, '.3amory-pos-data');
-const backupsDir = path.join(homeDir, '3amory-pos-backups');
-const logsDir = path.join(homeDir, '3amory-pos-logs');
+// Persistent storage directory for El Ghandour Phone POS (maintaining backward compatibility)
+const legacyDataDir = path.join(homeDir, '.3amory-pos-data');
+const preferredDataDir = path.join(homeDir, '.elghandour-pos-data');
+const persistentDataDir = fs.existsSync(legacyDataDir) && !fs.existsSync(preferredDataDir)
+  ? legacyDataDir
+  : preferredDataDir;
+
+const legacyBackupsDir = path.join(homeDir, '3amory-pos-backups');
+const preferredBackupsDir = path.join(homeDir, 'elghandour-pos-backups');
+const backupsDir = fs.existsSync(legacyBackupsDir) && !fs.existsSync(preferredBackupsDir)
+  ? legacyBackupsDir
+  : preferredBackupsDir;
+
+const legacyLogsDir = path.join(homeDir, '3amory-pos-logs');
+const preferredLogsDir = path.join(homeDir, 'elghandour-pos-logs');
+const logsDir = fs.existsSync(legacyLogsDir) && !fs.existsSync(preferredLogsDir)
+  ? legacyLogsDir
+  : preferredLogsDir;
+
 const invoicePreviewsDir = path.join(logsDir, 'invoice-previews');
 
 const dbMirrorFile = path.join(persistentDataDir, 'local_pos_database_mirror.json');
@@ -51,21 +67,21 @@ function ensureDirectoriesAndFiles() {
     if (!fs.existsSync(initLogFile)) {
       fs.writeFileSync(
         initLogFile,
-        `=== [3amory phone POS] - سجل التهيأة وقواعد البيانات المحلية (Init & DB Log) ===\nتاريخ الإنشاء: ${timestamp}\n${systemInfo}\nالمجلد الدائم: ${persistentDataDir}\n--------------------------------------------------------------------------------\n`
+        `=== [الغندور فون - El Ghandour Phone POS] - سجل التهيأة وقواعد البيانات المحلية (Init & DB Log) ===\nتاريخ الإنشاء: ${timestamp}\n${systemInfo}\nالمجلد الدائم: ${persistentDataDir}\n--------------------------------------------------------------------------------\n`
       );
     }
 
     if (!fs.existsSync(printerLogFile)) {
       fs.writeFileSync(
         printerLogFile,
-        `=== [3amory phone POS] - سجل محاولات وعمليات الطباعة (Printer Audit Log) ===\nتاريخ الإنشاء: ${timestamp}\n${systemInfo}\n--------------------------------------------------------------------------------\n`
+        `=== [الغندور فون - El Ghandour Phone POS] - سجل محاولات وعمليات الطباعة (Printer Audit Log) ===\nتاريخ الإنشاء: ${timestamp}\n${systemInfo}\n--------------------------------------------------------------------------------\n`
       );
     }
 
     if (!fs.existsSync(systemErrorsLogFile)) {
       fs.writeFileSync(
         systemErrorsLogFile,
-        `=== [3amory phone POS] - سجل أخطاء وتوقفات النظام (System Errors & Crashes Log) ===\nتاريخ الإنشاء: ${timestamp}\n${systemInfo}\n--------------------------------------------------------------------------------\n`
+        `=== [الغندور فون - El Ghandour Phone POS] - سجل أخطاء وتوقفات النظام (System Errors & Crashes Log) ===\nتاريخ الإنشاء: ${timestamp}\n${systemInfo}\n--------------------------------------------------------------------------------\n`
       );
     }
   } catch (err) {
@@ -81,131 +97,6 @@ function appendToLog(filePath, message, tag = 'INFO') {
   } catch (err) {
     console.error(`Failed to write to log file ${filePath}:`, err);
   }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 2. QZ Tray Certificate Trust & Request Signing Engine
-// ═══════════════════════════════════════════════════════════════════════════
-const QZ_CERTIFICATE_PEM = `-----BEGIN CERTIFICATE-----
-MIID0TCCArmgAwIBAgIUbEtmz4NQFeGF3z+6yGpZLPPjI6swDQYJKoZIhvcNAQEL
-BQAweDELMAkGA1UEBhMCRUcxDjAMBgNVBAgMBUNhaXJvMQ4wDAYDVQQHDAVDYWly
-bzEVMBMGA1UECgwMM2Ftb3J5IHBob25lMRcwFQYDVQQLDA5QT1MgRGVwYXJ0bWVu
-dDEZMBcGA1UEAwwQM2Ftb3J5IHBob25lIFBPUzAeFw0yNjA5MTQxMjQwMDlaFw0z
-NjA5MTExMjQwMDlaMHgxCzAJBgNVBAYTAkVHMQ4wDAYDVQQIDAVDYWlybzEOMAwG
-A1UEBwwFQ2Fpcm8xFTATBgNVBAoMDDNhbW9yeSBwaG9uZTEXMBUGA1UECwwOUE9T
-IERlcGFydG1lbnQxGTAXBgNVBAMMEDNhbW9yeSBwaG9uZSBQT1MwggEiMA0GCSqG
-SIb3DQEBAQUAA4IBDwAwggEKAoIBAQC2Zs98regmhQJTeC5/v2zCYiik9waBR+xi
-X/mhwzFlOpsFNHjjTHEe0u8k669pGmIV0Hhu8foSovUSzB7kA9BhmR3NiQ0lFAFe
-lJlFhWaHqjk3YOrQMZA4odg+A/k+vYRTHl2Q1xgLTxZRX18n7x9b+1/g+FswG8kZ
-2i9uuIV9htv9efCjaUgvB1q/wd59TBkaKXfoydgCbRmGDg2XluEh/wYmNOY7YW1W
-pm3irD8L4g3nCjmBqyGC5pqXu2zFD1AAcuBx+27SbdZm7ecDEQ6P7EX1ANSleI3/
-4Kgec0iN6M6dvzKPGffN0evdkOT99w84avKSWUZDyenoidhc4DvbAgMBAAGjUzBR
-MB0GA1UdDgQWBBTzlg7TcJ+bKkJTR1g/1OJihCNAiDAfBgNVHSMEGDAWgBTzlg7T
-cJ+bKkJTR1g/1OJihCNAiDAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUA
-A4IBAQBbKuNrL/pzTdwiqFx8xYiocPnTDEz0oG2rQk2OgGKMDVxUil3omeYU236E
-KIfvc9tTLQ/D/HxnDsfT0P1RfVLFdVQFhj3Lhw4zo42qz7+rpYio94Ejf0yu/1/j
-tKPuDKbZiyw/gEsqdCtdEQ4XyQHcXlEp2A9IlpEATKLa4Wl7uuzbeN/aNWlTzOAo
-9IhHGZADOOQAJfzJjNLHL5+Zs/aijOwbfU3sCL7vIY3a9fEKX/pvNSDYuiU9Uyxb
-7KnPmS7Dre+5z2DpgZAO4bZ9VAy4vgSX46WGjRjGtJaKPaxhzUPMT94uHubThv7Y
-UbRDSK0IWhxU+0XADnNPSFMpaAQG
------END CERTIFICATE-----`;
-
-const QZ_PRIVATE_KEY_PEM = `-----BEGIN PRIVATE KEY-----
-MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC2Zs98regmhQJT
-eC5/v2zCYiik9waBR+xiX/mhwzFlOpsFNHjjTHEe0u8k669pGmIV0Hhu8foSovUS
-zB7kA9BhmR3NiQ0lFAFelJlFhWaHqjk3YOrQMZA4odg+A/k+vYRTHl2Q1xgLTxZR
-X18n7x9b+1/g+FswG8kZ2i9uuIV9htv9efCjaUgvB1q/wd59TBkaKXfoydgCbRmG
-Dg2XluEh/wYmNOY7YW1Wpm3irD8L4g3nCjmBqyGC5pqXu2zFD1AAcuBx+27SbdZm
-7ecDEQ6P7EX1ANSleI3/4Kgec0iN6M6dvzKPGffN0evdkOT99w84avKSWUZDyeno
-idhc4DvbAgMBAAECggEAQ7y2fSTQO83VaU4OZp6eMynk0i5ymfwtyvK9b9dfNqqm
-+y3bXv36XGoVKW7lO3Dy0AsVTo5KQjWGMa7gIelQr43/RV8KJKTjRU6GBQ1fYC5V
-BT3Wte5SEtX3ykALhcM3qu5x7OIUKc77CMkUO25QBQa7On7AzoLjEdi3GLUpzc1v
-dx/e/cnm6mBZc1jo5wvMxh3RXv55xGRAknRnQ+sdJDt2duro0E5OlKjHZ5hjNBtK
-NGmIPt8apUFHij+siHHoR3wwEf8eiW/Sz32I2J6mTg03qc4qImdx2IZ6FxSVDuRN
-TZJdqcQpjawb7AsTi6Kor+hqiv7SwK+nWzq0mTf9cQKBgQD2CS+s1tU90KOs/hDU
-9as6SpqrwJepsqQ62pqc/wjP1qZWps3q9/fBi3knKbSJAve8QIez5IOj106YO0nL
-QCxQ91K9RairU1+iZ8c6GmzlR3r3Io8b3BypCUxokubYpWYGKi3SPBRCTeIxtbG1
-HHtmGJ5YSDM6ng2XZ7l25+vKHwKBgQC9yeLolgUQsqvr/Mfm4dlV8czHLwjgjK/N
-9XhYKyMgAZAnJwg7wAurDBU68BY/nKyn8pUnYne7OJBdScrR4c2CgKybRZOH+gNo
-k1UfKM9BqFWlrF5z15WeEZD1wHMgyxuYHA6jlBIbYkx73QhRneOJy0ggqNfVFRn/
-9yr31KAOxQKBgQDDPQruFxTklrorvvlQZRrZiPYwMQapDS+x3GMxDljJxUX+ISPq
-v5eFqM4dO8UdrJM2eea15DJqQ6MEvpeSiHwiTAEGXU65ldGgKMY531pmn1B+6Jez
-vfmoUc6mdVxmsunBHpt5518UNoW2eL5qQA3UONj+qVytuVqDuTW9m9DKdQKBgA1t
-pGVqf+8/hRSMbSRz5GnFUwTg2hLxQVskPCCY5MJV+fobM+TuYKT4lOP3qstTbY/w
-hQclW21ewjAnkXcqL91E93GBCcA8O1OB4Sr0Oz3dCDpRqNkvbsGhYo1Q0ZSHamtn
-yM1gI6vWV60H5ZfIwRm1zWOqLqM/+/f1aA/i9nQ1AoGAEZ25+Peue0mfLSVvhPIJ
-/PHOv0j6x0K3pfJcj1wRjcutpkQt5ckwa9Aeo9sFDM/GaTO+rgEzfNJOpt8+DwWu
-W2w2NLFK4vqLm4Gcks9mlDzgVNHCDUcbJiQ2jYpM/e3ijjltMjAN1RtiVvTHteQi
-U+sJElDHRZFiiENROqwKYSI=
------END PRIVATE KEY-----`;
-
-function setupQzTrustAndOverride() {
-  try {
-    const qzUserDirs = [
-      path.join(homeDir, '.qz'),
-      path.join(process.env.APPDATA || '', 'qz'),
-    ];
-
-    for (const qzDir of qzUserDirs) {
-      if (!fs.existsSync(qzDir)) {
-        try { fs.mkdirSync(qzDir, { recursive: true }); } catch {}
-      }
-
-      if (fs.existsSync(qzDir)) {
-        const overrideFile = path.join(qzDir, 'override.crt');
-        fs.writeFileSync(overrideFile, QZ_CERTIFICATE_PEM, 'utf8');
-
-        const prefsFile = path.join(qzDir, 'prefs.properties');
-        let prefsContent = '';
-        if (fs.existsSync(prefsFile)) {
-          prefsContent = fs.readFileSync(prefsFile, 'utf8');
-        }
-        if (!prefsContent.includes('authcert.override')) {
-          const formattedPath = overrideFile.replace(/\\/g, '/');
-          prefsContent += `\nauthcert.override=${formattedPath}\n`;
-          fs.writeFileSync(prefsFile, prefsContent, 'utf8');
-        }
-        appendToLog(printerLogFile, `Configured QZ Tray override certificate at: ${overrideFile}`, 'QZ_OVERRIDE');
-      }
-    }
-  } catch (err) {
-    appendToLog(printerLogFile, `QZ override setup error: ${err.message}`, 'WARN');
-  }
-}
-
-function autoLaunchQzTray() {
-  setupQzTrustAndOverride();
-
-  const possiblePaths = [
-    // Linux standard locations
-    '/opt/qz-tray/qz-tray',
-    '/usr/bin/qz-tray',
-    '/usr/local/bin/qz-tray',
-    path.join(homeDir, 'qz-tray/qz-tray'),
-    // Windows standard locations
-    'C:\\Program Files\\qz-tray\\qz-tray.exe',
-    'C:\\Program Files (x86)\\qz-tray\\qz-tray.exe',
-    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'qz-tray', 'qz-tray.exe'),
-    path.join(process.env.APPDATA || '', 'qz-tray', 'qz-tray.exe'),
-  ];
-
-  for (const qzPath of possiblePaths) {
-    if (fs.existsSync(qzPath)) {
-      try {
-        const proc = child_process.spawn(qzPath, [], {
-          detached: true,
-          stdio: 'ignore',
-        });
-        proc.unref();
-        appendToLog(printerLogFile, `Auto-detected and launched QZ Tray from: ${qzPath}`, 'QZ_AUTO_START');
-        return { success: true, path: qzPath };
-      } catch (err) {
-        appendToLog(printerLogFile, `Found QZ Tray at ${qzPath} but spawn failed: ${err.message}`, 'WARN');
-      }
-    }
-  }
-  appendToLog(printerLogFile, 'QZ Tray executable not found at standard paths. Native silent printing remains active.', 'INFO');
-  return { success: false };
 }
 
 // Global process error logging
@@ -233,7 +124,7 @@ function createWindow() {
     height: 860,
     minWidth: 1024,
     minHeight: 700,
-    title: '3amory phone - Mobile POS Pro',
+    title: 'الغندور فون - El Ghandour Phone POS',
     backgroundColor: '#0f172a', // Deep dark slate - prevents blank white flashes
     icon: path.join(__dirname, '../logo-removebg-preview.png'),
     webPreferences: {
@@ -513,36 +404,10 @@ function createWindow() {
     appendToLog(printerLogFile, 'Cash drawer kick signal triggered via IPC', 'DRAWER');
     return true;
   });
-
-  ipcMain.handle('printer:launch-qz', async () => {
-    return autoLaunchQzTray();
-  });
-
-  ipcMain.handle('printer:download-qz', async () => {
-    shell.openExternal('https://qz.io/download/');
-    return true;
-  });
-
-  ipcMain.handle('qz:sign', async (event, toSign) => {
-    try {
-      const signer = crypto.createSign('SHA512');
-      signer.update(toSign);
-      return signer.sign(QZ_PRIVATE_KEY_PEM, 'base64');
-    } catch (err) {
-      appendToLog(printerLogFile, `QZ request signing error: ${err.message}`, 'ERROR');
-      throw err;
-    }
-  });
-
-  ipcMain.handle('qz:get-certificate', async () => {
-    return QZ_CERTIFICATE_PEM;
-  });
 }
 
 app.whenReady().then(() => {
   createWindow();
-  // Attempt auto-starting QZ Tray on app boot
-  autoLaunchQzTray();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
