@@ -20,10 +20,13 @@ import {
   Copy,
   ExternalLink,
   ShieldCheck,
+  Download,
+  Usb,
 } from 'lucide-react';
 import { db } from '../db';
 import { useModal } from '../context/ModalContext';
 import { systemLogger } from '../services/logger';
+import { BarcodePrintEngine } from '../services/barcodePrintEngine';
 import type { Accessory, Phone, StoreSettings } from '../types';
 
 export interface BarcodePrintItem {
@@ -563,6 +566,70 @@ export const BarcodeView: React.FC = () => {
     }
   };
 
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+
+  // Download calibrated PDF via Labelary REST API
+  const handleDownloadLabelaryPdf = async () => {
+    if (printQueue.length === 0) {
+      showAlert('قائمة الطباعة فارغة! أضف منتجات أولاً للتحميل.', 'تنبيه');
+      return;
+    }
+    setDownloadingPdf(true);
+    try {
+      const blob = await BarcodePrintEngine.downloadLabelaryPdf(printQueue, {
+        widthMm: currentPreset.widthMm,
+        heightMm: currentPreset.heightMm,
+        gapMm: 1.0,
+        dpi: 203,
+        showStoreName,
+        storeName: customStoreName,
+        showProductName,
+        showPrice,
+        showOrigin,
+        originText,
+      });
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `barcode_labels_${new Date().toISOString().slice(0, 10)}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('تم إنشاء وتحميل ملف PDF للباركود بجودة 203 DPI مطابقة للمواصفات! 📄');
+    } catch (err: any) {
+      showAlert(`فشل تحميل الـ PDF: ${err?.message || err}`, 'تنبيه', 'error');
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
+  // Send raw TSPL directly to printer via WebUSB
+  const handleWebUsbDirectPrint = async () => {
+    if (printQueue.length === 0) {
+      showAlert('قائمة الطباعة فارغة! أضف منتجات أولاً.', 'تنبيه');
+      return;
+    }
+    try {
+      const binary = BarcodePrintEngine.generateTSPLBinary(printQueue, {
+        widthMm: currentPreset.widthMm,
+        heightMm: currentPreset.heightMm,
+        gapMm: 1.0,
+        dpi: 203,
+        showStoreName,
+        storeName: customStoreName,
+        showProductName,
+        showPrice,
+        showOrigin,
+        originText,
+      });
+
+      await BarcodePrintEngine.sendToWebUSB(binary);
+      showToast('تم إرسال أوامر TSPL المباشرة بنجاح عبر منفذ USB! ⚡');
+    } catch (err: any) {
+      showAlert(`WebUSB: ${err?.message || err}`, 'اتصال USB مباشر', 'info');
+    }
+  };
+
   return (
     <div className="space-y-6 select-none font-sans" dir="rtl">
       {/* Header Bar */}
@@ -594,6 +661,28 @@ export const BarcodeView: React.FC = () => {
           >
             <Printer className="h-4 w-4" />
             <span>طباعة صامتة فورية ({totalLabelsInQueue})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleDownloadLabelaryPdf}
+            disabled={downloadingPdf || totalLabelsInQueue === 0}
+            title="توليد ملف PDF جاهز بمقاس الملصق بالضبط"
+            className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition cursor-pointer disabled:opacity-50"
+          >
+            <Download className={`h-4 w-4 ${downloadingPdf ? 'animate-bounce text-cyan-600' : ''}`} />
+            <span>{downloadingPdf ? 'جاري التحميل...' : 'تحميل PDF'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleWebUsbDirectPrint}
+            disabled={totalLabelsInQueue === 0}
+            title="إرسال باينري مباشر (TSPL) لطابعة USB"
+            className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition cursor-pointer disabled:opacity-50"
+          >
+            <Usb className="h-4 w-4 text-emerald-600" />
+            <span>WebUSB</span>
           </button>
 
           <button

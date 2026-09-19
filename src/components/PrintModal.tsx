@@ -152,7 +152,10 @@ export const PrintModal: React.FC = () => {
 
         {/* Preview Scrollable Body */}
         <div className="flex-1 overflow-y-auto bg-slate-100 p-4 sm:p-6 flex justify-center">
-          <div className={`print-area w-full ${previewWidth} rounded-2xl bg-white p-5 sm:p-6 shadow-xl border border-slate-200 text-slate-900 text-sm transition-all duration-200 overflow-hidden box-border`}>
+          <div
+            className={`print-area w-full ${previewWidth} rounded-2xl bg-white p-5 sm:p-6 shadow-xl border border-slate-200 text-slate-900 text-sm transition-all duration-200 overflow-hidden box-border`}
+            style={{ paddingRight: '6mm', direction: 'rtl' }}
+          >
             
             {/* === RECEIPT HEADER (STORE BRANDING) === */}
             <div className="text-center pb-4 border-b border-dashed border-slate-300">
@@ -543,9 +546,12 @@ export const PrintModal: React.FC = () => {
               <div className="mt-4 pt-3 border-t border-dashed border-slate-300 text-center text-[10px] text-slate-500 space-y-1">
                 {settings.receiptNotes && <p>{settings.receiptNotes}</p>}
                 {settings.receiptFooter && <p className="font-semibold text-slate-700">{settings.receiptFooter}</p>}
-                <p className="text-[9px] text-slate-400">نظام Mobile POS Pro لإدارة محلات الهواتف</p>
+                <p className="text-[9px] text-slate-400">نظام الغندور فون - El Ghandour Phone POS</p>
               </div>
             )}
+
+            {/* Physical Cutter Feed Clearance (Ensures auto-cutter never cuts last line) */}
+            <div style={{ height: '25mm', minHeight: '90px', clear: 'both', display: 'block' }}></div>
 
           </div>
         </div>
