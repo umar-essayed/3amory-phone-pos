@@ -32,3 +32,5 @@ Screenshot*.png
 *.njsproj
 *.sln
 *.sw?
+.vercel
+.env*
