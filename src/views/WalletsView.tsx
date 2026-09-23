@@ -46,7 +46,8 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
   });
 
   // Quick Operation Form State
-  const [txType, setTxType] = useState<'cash_in_from_customer' | 'cash_out_to_customer' | 'instapay_transfer' | 'internal_transfer'>('cash_in_from_customer');
+  type TxType = 'cash_in_from_customer' | 'cash_out_to_customer' | 'instapay_transfer' | 'instapay_receive' | 'internal_transfer';
+  const [txType, setTxType] = useState<TxType>('cash_in_from_customer');
   const [selectedWalletId, setSelectedWalletId] = useState<string>('');
   const [targetWalletId, setTargetWalletId] = useState<string>('');
   const [amount, setAmount] = useState<string>('');
@@ -56,6 +57,7 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
   const [showOptionalFields, setShowOptionalFields] = useState<boolean>(false);
   const [customerName, setCustomerName] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
+  const [txCategoryFilter, setTxCategoryFilter] = useState<'all' | 'cash' | 'instapay'>('all');
 
   // Modals
   const [showNewWalletModal, setShowNewWalletModal] = useState<boolean>(false);
@@ -69,12 +71,29 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
 
   const amountInputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-select first wallet if none selected
+  // Segregation: Cash Wallets vs InstaPay Wallets
+  const isInstapayTx = txType === 'instapay_transfer' || txType === 'instapay_receive';
+  const isCashTx = txType === 'cash_in_from_customer' || txType === 'cash_out_to_customer';
+
+  const cashWallets = useMemo(() => wallets.filter((w) => w.type !== 'instapay'), [wallets]);
+  const instapayWallets = useMemo(() => wallets.filter((w) => w.type === 'instapay'), [wallets]);
+
+  const availableWallets = useMemo(() => {
+    if (isInstapayTx) return instapayWallets;
+    if (isCashTx) return cashWallets;
+    return wallets;
+  }, [isInstapayTx, isCashTx, instapayWallets, cashWallets, wallets]);
+
+  // Keep selectedWalletId strictly within the permitted wallet category
   useEffect(() => {
-    if (wallets.length > 0 && (!selectedWalletId || !wallets.find((w) => w.id === selectedWalletId))) {
-      setSelectedWalletId(wallets[0].id);
+    if (availableWallets.length > 0) {
+      if (!selectedWalletId || !availableWallets.some((w) => w.id === selectedWalletId)) {
+        setSelectedWalletId(availableWallets[0].id);
+      }
+    } else {
+      setSelectedWalletId('');
     }
-  }, [wallets, selectedWalletId]);
+  }, [availableWallets, selectedWalletId]);
 
   // Calculate Commission based on store settings (Rate per 1,000 + Minimum fee)
   const calculateDefaultCommission = (val: number, type: string) => {
@@ -90,7 +109,7 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
     } else if (type === 'cash_in_from_customer') {
       feePerThousand = rules?.withdrawFeePerThousand ?? 10;
       minFee = rules?.minWithdrawFee ?? 5;
-    } else if (type === 'instapay_transfer') {
+    } else if (type === 'instapay_transfer' || type === 'instapay_receive') {
       feePerThousand = rules?.instapayFeePerThousand ?? 5;
       minFee = rules?.minInstapayFee ?? 5;
     }
@@ -118,7 +137,14 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
     }
     if (txType === 'instapay_transfer') {
       return {
-        label: 'تحويل إنستاباي',
+        label: 'تحويل إنستاباي للعميل',
+        feePerThousand: rules?.instapayFeePerThousand ?? 5,
+        minFee: rules?.minInstapayFee ?? 5,
+      };
+    }
+    if (txType === 'instapay_receive') {
+      return {
+        label: 'استلام إنستاباي من العميل',
         feePerThousand: rules?.instapayFeePerThousand ?? 5,
         minFee: rules?.minInstapayFee ?? 5,
       };
@@ -144,13 +170,25 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
     }
   };
 
-  const handleTypeChange = (type: typeof txType) => {
+  const handleTypeChange = (type: TxType) => {
     setTxType(type);
     setIsCustomCommission(false);
     const num = parseFloat(amount) || 0;
     if (num > 0) {
       setCommission(calculateDefaultCommission(num, type).toString());
     }
+
+    // Auto-select valid wallet in new category
+    const isNowInstapay = type === 'instapay_transfer' || type === 'instapay_receive';
+    const isNowCash = type === 'cash_in_from_customer' || type === 'cash_out_to_customer';
+    if (isNowInstapay) {
+      const firstInsta = wallets.find((w) => w.type === 'instapay');
+      if (firstInsta) setSelectedWalletId(firstInsta.id);
+    } else if (isNowCash) {
+      const firstCash = wallets.find((w) => w.type !== 'instapay');
+      if (firstCash) setSelectedWalletId(firstCash.id);
+    }
+
     amountInputRef.current?.focus();
   };
 
@@ -172,9 +210,16 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
       return;
     }
 
-    if (wallets.length === 0) {
-      showAlert('لا توجد محافظ مسجلة! يرجى إضافة محفظة أو خط أولاً من زر (+) بالأعلى.', 'لا توجد محافظ', 'warning');
-      setShowNewWalletModal(true);
+    if (availableWallets.length === 0) {
+      if (isInstapayTx) {
+        showAlert('لا يوجد حساب إنستاباي مسجل بالمحل! يرجى إضافة حساب إنستاباي أولاً.', 'لا يوجد إنستاباي', 'warning');
+        setNewWalletType('instapay');
+        setNewWalletName('إنستاباي المحل');
+        setShowNewWalletModal(true);
+      } else {
+        showAlert('لا توجد محفظة كاش مسجلة بالمحل! يرجى إضافة محفظة كاش أولاً من زر (+).', 'لا توجد محفظة', 'warning');
+        setShowNewWalletModal(true);
+      }
       return;
     }
 
@@ -183,7 +228,7 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
       return;
     }
 
-    const currentWallet = wallets.find((w) => w.id === selectedWalletId) || wallets[0];
+    const currentWallet = availableWallets.find((w) => w.id === selectedWalletId) || availableWallets[0];
 
     // Daily & Monthly Limit verification for Outgoing Transfers (Cash Out / Instapay)
     // Rule: Deposits from customer (Cash In) are unlimited and do not consume limit.
@@ -284,7 +329,7 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
 
       if (txType === 'cash_out_to_customer' || txType === 'instapay_transfer') {
         await db.wallets.update(currentWallet.id, { balance: currentWallet.balance - numAmount });
-      } else if (txType === 'cash_in_from_customer') {
+      } else if (txType === 'cash_in_from_customer' || txType === 'instapay_receive') {
         await db.wallets.update(currentWallet.id, { balance: currentWallet.balance + numAmount });
       } else if (txType === 'internal_transfer' && targetWalletId) {
         const targetWallet = await db.wallets.get(targetWalletId);
@@ -300,7 +345,7 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
         if (txType === 'cash_out_to_customer' || txType === 'instapay_transfer') {
           // العميل يعطي المحل كاش (المبلغ المراد تحويله + العمولة)
           cashDelta = numAmount + numCommission;
-        } else if (txType === 'cash_in_from_customer') {
+        } else if (txType === 'cash_in_from_customer' || txType === 'instapay_receive') {
           // المحل يسلم العميل كاش من الدرج (المبلغ المستلم إلكترونياً ناقص العمولة)
           cashDelta = -(numAmount - numCommission);
         }
@@ -308,8 +353,8 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
         await db.shifts.update(openShift.id, {
           closingCashSystem: shift.closingCashSystem + cashDelta,
           totalCommissions: (shift.totalCommissions || 0) + numCommission,
-          totalWalletIn: txType === 'cash_out_to_customer' ? (shift.totalWalletIn || 0) + numAmount : shift.totalWalletIn,
-          totalWalletOut: txType === 'cash_in_from_customer' ? (shift.totalWalletOut || 0) + numAmount : shift.totalWalletOut,
+          totalWalletIn: (txType === 'cash_out_to_customer' || txType === 'instapay_transfer') ? (shift.totalWalletIn || 0) + numAmount : shift.totalWalletIn,
+          totalWalletOut: (txType === 'cash_in_from_customer' || txType === 'instapay_receive') ? (shift.totalWalletOut || 0) + numAmount : shift.totalWalletOut,
         });
       }
     });
@@ -399,85 +444,161 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
             </div>
           </div>
 
-          {/* Active Wallet Selector Pill */}
+          {/* Active Wallet Selector Pill (Segregated) */}
           <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-2xl border border-slate-200">
-            <span className="text-[11px] font-bold text-slate-500 pr-2">المحفظة:</span>
-            <select
-              value={selectedWalletId}
-              onChange={(e) => setSelectedWalletId(e.target.value)}
-              className="bg-white font-bold text-xs text-slate-800 py-1.5 px-3 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-400 cursor-pointer shadow-xs"
-            >
-              {wallets.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name} (رصيد: {w.balance.toLocaleString()} ج)
-                </option>
-              ))}
-            </select>
+            <span className="text-[11px] font-bold text-slate-500 pr-2">
+              {isInstapayTx ? 'حساب إنستاباي:' : isCashTx ? 'خط الكاش:' : 'المحفظة:'}
+            </span>
+            {availableWallets.length === 0 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (isInstapayTx) {
+                    setNewWalletType('instapay');
+                    setNewWalletName('إنستاباي المحل');
+                  } else {
+                    setNewWalletType('vodafone');
+                    setNewWalletName('فودافون كاش');
+                  }
+                  setShowNewWalletModal(true);
+                }}
+                className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer"
+              >
+                + إضافة {isInstapayTx ? 'حساب إنستاباي' : 'محفظة كاش'}
+              </button>
+            ) : (
+              <select
+                value={selectedWalletId}
+                onChange={(e) => setSelectedWalletId(e.target.value)}
+                className="bg-white font-bold text-xs text-slate-800 py-1.5 px-3 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-400 cursor-pointer shadow-xs"
+              >
+                {availableWallets.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name} (رصيد: {w.balance.toLocaleString()} ج)
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
 
         <form onSubmit={handleExecuteTransaction} className="space-y-5">
-          {/* STEP 1: OPERATION TYPE (LARGE CLICKABLE TILES) */}
-          <div>
-            <label className="block text-xs font-bold text-slate-600 mb-2">
-              1. نوع العملية:
-            </label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              <button
-                type="button"
-                onClick={() => handleTypeChange('cash_in_from_customer')}
-                className={`p-3.5 rounded-2xl font-bold text-xs flex flex-col items-center gap-1.5 transition active:scale-95 cursor-pointer border ${
-                  txType === 'cash_in_from_customer'
-                    ? 'bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-600/15'
-                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-emerald-300'
-                }`}
-              >
-                <ArrowUpRight className="h-5 w-5" />
-                <span className="font-black text-sm">سحب من العميل</span>
-                <span className="text-[10px] opacity-80">العميل يحول ونعطيه كاش</span>
-              </button>
+          {/* STEP 1: OPERATION TYPE (STRICTLY SEGREGATED CASH VS INSTAPAY) */}
+          <div className="space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+              <label className="text-xs font-black text-slate-700">
+                1. نوع العملية (اختر من محافظ الكاش أو شبكة إنستاباي):
+              </label>
+              <div>
+                {isInstapayTx ? (
+                  <span className="text-purple-700 bg-purple-50 px-2.5 py-0.5 rounded-full border border-purple-200 text-[11px] font-bold">
+                    منظومة إنستاباي (حسابات البنوك و IPA)
+                  </span>
+                ) : isCashTx ? (
+                  <span className="text-rose-700 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200 text-[11px] font-bold">
+                    محافظ الكاش (فودافون / أورنج / اتصالات / وي)
+                  </span>
+                ) : (
+                  <span className="text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200 text-[11px] font-bold">
+                    تحويل داخلي بين الخطوط
+                  </span>
+                )}
+              </div>
+            </div>
 
-              <button
-                type="button"
-                onClick={() => handleTypeChange('cash_out_to_customer')}
-                className={`p-3.5 rounded-2xl font-bold text-xs flex flex-col items-center gap-1.5 transition active:scale-95 cursor-pointer border ${
-                  txType === 'cash_out_to_customer'
-                    ? 'bg-red-600 border-red-600 text-white shadow-md shadow-red-600/15'
-                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-red-300'
-                }`}
-              >
-                <ArrowDownLeft className="h-5 w-5" />
-                <span className="font-black text-sm">تحويل للعميل</span>
-                <span className="text-[10px] opacity-80">المحل يحول ويستلم كاش</span>
-              </button>
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+              {/* GROUP A: CASH WALLETS (فودافون / أورنج / اتصالات / وي) */}
+              <div className="md:col-span-5 bg-gradient-to-r from-rose-50/70 to-red-50/40 p-2.5 rounded-2xl border border-rose-200/80">
+                <div className="flex items-center gap-1.5 mb-2 px-1 text-[11px] font-black text-rose-800">
+                  <Zap className="h-3.5 w-3.5 text-rose-600" />
+                  <span>محافظ الكاش (فودافون / أورنج / اتصالات / وي):</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleTypeChange('cash_in_from_customer')}
+                    className={`p-3 rounded-xl font-bold text-xs flex flex-col items-center gap-1 transition active:scale-95 cursor-pointer border ${
+                      txType === 'cash_in_from_customer'
+                        ? 'bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-600/20'
+                        : 'bg-white border-rose-200 text-slate-700 hover:border-emerald-400'
+                    }`}
+                  >
+                    <ArrowUpRight className="h-5 w-5" />
+                    <span className="font-black text-sm">سحب كاش</span>
+                    <span className="text-[10px] opacity-80">استقبال (العميل يحول)</span>
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => handleTypeChange('instapay_transfer')}
-                className={`p-3.5 rounded-2xl font-bold text-xs flex flex-col items-center gap-1.5 transition active:scale-95 cursor-pointer border ${
-                  txType === 'instapay_transfer'
-                    ? 'bg-purple-700 border-purple-700 text-white shadow-md shadow-purple-700/15'
-                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-purple-300'
-                }`}
-              >
-                <CreditCard className="h-5 w-5" />
-                <span className="font-black text-sm">إنستاباي (InstaPay)</span>
-                <span className="text-[10px] opacity-80">تحويل بنكي / عنوان دفع</span>
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTypeChange('cash_out_to_customer')}
+                    className={`p-3 rounded-xl font-bold text-xs flex flex-col items-center gap-1 transition active:scale-95 cursor-pointer border ${
+                      txType === 'cash_out_to_customer'
+                        ? 'bg-red-600 border-red-600 text-white shadow-md shadow-red-600/20'
+                        : 'bg-white border-rose-200 text-slate-700 hover:border-red-400'
+                    }`}
+                  >
+                    <ArrowDownLeft className="h-5 w-5" />
+                    <span className="font-black text-sm">تحويل كاش</span>
+                    <span className="text-[10px] opacity-80">إرسال (المحل يحول)</span>
+                  </button>
+                </div>
+              </div>
 
-              <button
-                type="button"
-                onClick={() => handleTypeChange('internal_transfer')}
-                className={`p-3.5 rounded-2xl font-bold text-xs flex flex-col items-center gap-1.5 transition active:scale-95 cursor-pointer border ${
-                  txType === 'internal_transfer'
-                    ? 'bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-600/15'
-                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-blue-300'
-                }`}
-              >
-                <RefreshCw className="h-5 w-5" />
-                <span className="font-black text-sm">بين المحافظ</span>
-                <span className="text-[10px] opacity-80">نقل رصيد بين خطوط المحل</span>
-              </button>
+              {/* GROUP B: INSTAPAY (إنستاباي - شبكة المدفوعات اللحظية) */}
+              <div className="md:col-span-5 bg-gradient-to-r from-purple-50/70 to-indigo-50/40 p-2.5 rounded-2xl border border-purple-200/80">
+                <div className="flex items-center gap-1.5 mb-2 px-1 text-[11px] font-black text-purple-900">
+                  <CreditCard className="h-3.5 w-3.5 text-purple-700" />
+                  <span>منظومة إنستاباي (InstaPay):</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleTypeChange('instapay_receive')}
+                    className={`p-3 rounded-xl font-bold text-xs flex flex-col items-center gap-1 transition active:scale-95 cursor-pointer border ${
+                      txType === 'instapay_receive'
+                        ? 'bg-violet-700 border-violet-700 text-white shadow-md shadow-violet-700/20'
+                        : 'bg-white border-purple-200 text-slate-700 hover:border-violet-400'
+                    }`}
+                  >
+                    <ArrowUpRight className="h-5 w-5" />
+                    <span className="font-black text-sm">استلام إنستاباي</span>
+                    <span className="text-[10px] opacity-80">استقبال (العميل يحول)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleTypeChange('instapay_transfer')}
+                    className={`p-3 rounded-xl font-bold text-xs flex flex-col items-center gap-1 transition active:scale-95 cursor-pointer border ${
+                      txType === 'instapay_transfer'
+                        ? 'bg-purple-700 border-purple-700 text-white shadow-md shadow-purple-700/20'
+                        : 'bg-white border-purple-200 text-slate-700 hover:border-purple-400'
+                    }`}
+                  >
+                    <ArrowDownLeft className="h-5 w-5" />
+                    <span className="font-black text-sm">تحويل إنستاباي</span>
+                    <span className="text-[10px] opacity-80">إرسال (المحل يحول)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* GROUP C: INTERNAL TRANSFER */}
+              <div className="md:col-span-2 bg-slate-50/80 p-2.5 rounded-2xl border border-slate-200 flex flex-col justify-between">
+                <div className="text-[11px] font-black text-slate-600 mb-1 px-1">
+                  بين الخطوط:
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleTypeChange('internal_transfer')}
+                  className={`w-full h-full min-h-[64px] p-2 rounded-xl font-bold text-xs flex flex-col items-center justify-center gap-1 transition active:scale-95 cursor-pointer border ${
+                    txType === 'internal_transfer'
+                      ? 'bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-600/20'
+                      : 'bg-white border-slate-200 text-slate-700 hover:border-blue-400'
+                  }`}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  <span className="font-black text-xs">نقل رصيد</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -592,10 +713,10 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
               </div>
 
               <div className="text-[11px] font-bold text-emerald-800 border-t border-emerald-200/60 pt-2 mt-1">
-                {txType === 'cash_in_from_customer' ? (
-                  <span>يدفع العميل بالمحل: <strong>{(numAmount - numComm).toLocaleString()} ج</strong> كاش</span>
+                {(txType === 'cash_in_from_customer' || txType === 'instapay_receive') ? (
+                  <span>يسلم المحل للعميل: <strong>{(numAmount - numComm).toLocaleString()} ج</strong> كاش من الدرج</span>
                 ) : (
-                  <span>يستلم المحل من العميل: <strong>{(numAmount + numComm).toLocaleString()} ج</strong> كاش</span>
+                  <span>يستلم المحل من العميل: <strong>{(numAmount + numComm).toLocaleString()} ج</strong> كاش بالدرج</span>
                 )}
               </div>
             </div>
@@ -643,7 +764,13 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
             className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-600 hover:brightness-105 active:scale-[0.98] text-white font-display text-lg font-black shadow-xl shadow-emerald-600/25 transition cursor-pointer flex items-center justify-center gap-2"
           >
             <Zap className="h-6 w-6" />
-            <span>تأكيد وتنفيذ العملية فوراً (Enter)</span>
+            <span>
+              {txType === 'cash_in_from_customer' && 'تأكيد سحب الكاش وتسليم العميل (Enter)'}
+              {txType === 'cash_out_to_customer' && 'تأكيد تحويل الكاش واستلام المبلغ (Enter)'}
+              {txType === 'instapay_receive' && 'تأكيد استلام إنستاباي وتسليم العميل كاش (Enter)'}
+              {txType === 'instapay_transfer' && 'تأكيد تحويل إنستاباي واستلام كاش من العميل (Enter)'}
+              {txType === 'internal_transfer' && 'تأكيد التحويل الداخلي بين الخطوط (Enter)'}
+            </span>
           </button>
         </form>
       </div>
@@ -829,13 +956,53 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
           RECENT TRANSACTIONS LOG
       ═══════════════════════════════════════════════════════════════ */}
       <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <History className="h-4 w-4 text-blue-600" />
-            <h3 className="font-display font-bold text-sm text-slate-800">
-              سجل التحويلات والعمليات الأخيرة ({transactions.length})
-            </h3>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <History className="h-4 w-4 text-blue-600" />
+              <h3 className="font-display font-bold text-sm text-slate-800">
+                سجل التحويلات والعمليات الأخيرة:
+              </h3>
+            </div>
+
+            {/* Filter pills: الكل / كاش / إنستاباي */}
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setTxCategoryFilter('all')}
+                className={`px-3 py-1 rounded-lg transition cursor-pointer ${
+                  txCategoryFilter === 'all'
+                    ? 'bg-white shadow-xs text-slate-900'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                الكل ({transactions.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setTxCategoryFilter('cash')}
+                className={`px-3 py-1 rounded-lg transition cursor-pointer ${
+                  txCategoryFilter === 'cash'
+                    ? 'bg-white shadow-xs text-rose-700'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                محافظ الكاش
+              </button>
+              <button
+                type="button"
+                onClick={() => setTxCategoryFilter('instapay')}
+                className={`px-3 py-1 rounded-lg transition cursor-pointer ${
+                  txCategoryFilter === 'instapay'
+                    ? 'bg-white shadow-xs text-purple-700'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                إنستاباي
+              </button>
+            </div>
           </div>
+
           <div className="flex items-center gap-3 text-xs font-bold">
             <span className="text-slate-500">
               أرباح اليوم: <strong className="text-emerald-600 font-mono">+{todayCommissions.toLocaleString()} {cur}</strong>
@@ -861,33 +1028,56 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {transactions.length === 0 ? (
+              {transactions
+                .filter((t) => {
+                  if (txCategoryFilter === 'cash') {
+                    return t.type === 'cash_in_from_customer' || t.type === 'cash_out_to_customer';
+                  }
+                  if (txCategoryFilter === 'instapay') {
+                    return t.type === 'instapay_transfer' || t.type === 'instapay_receive';
+                  }
+                  return true;
+                })
+                .length === 0 ? (
                 <tr>
                   <td colSpan={7} className="p-8 text-center text-slate-400 font-semibold">
-                    لا توجد عمليات تحويل مسجلة حتى الآن.
+                    لا توجد عمليات تحويل مطابقة في هذا القسم.
                   </td>
                 </tr>
               ) : (
-                transactions.map((t) => (
-                  <tr key={t.id} className="hover:bg-slate-50">
-                    <td className="p-3">
-                      <span
-                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold ${
-                          t.type === 'cash_in_from_customer'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : t.type === 'cash_out_to_customer'
-                            ? 'bg-red-100 text-red-800'
-                            : t.type === 'instapay_transfer'
-                            ? 'bg-purple-100 text-purple-800'
-                            : 'bg-blue-100 text-blue-800'
-                        }`}
-                      >
-                        {t.type === 'cash_in_from_customer' && 'سحب من العميل'}
-                        {t.type === 'cash_out_to_customer' && 'تحويل للعميل'}
-                        {t.type === 'instapay_transfer' && 'إنستاباي'}
-                        {t.type === 'internal_transfer' && 'تحويل داخلي'}
-                      </span>
-                    </td>
+                transactions
+                  .filter((t) => {
+                    if (txCategoryFilter === 'cash') {
+                      return t.type === 'cash_in_from_customer' || t.type === 'cash_out_to_customer';
+                    }
+                    if (txCategoryFilter === 'instapay') {
+                      return t.type === 'instapay_transfer' || t.type === 'instapay_receive';
+                    }
+                    return true;
+                  })
+                  .map((t) => (
+                    <tr key={t.id} className="hover:bg-slate-50">
+                      <td className="p-3">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold ${
+                            t.type === 'cash_in_from_customer'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : t.type === 'cash_out_to_customer'
+                              ? 'bg-red-100 text-red-800'
+                              : t.type === 'instapay_transfer'
+                              ? 'bg-purple-100 text-purple-800'
+                              : t.type === 'instapay_receive'
+                              ? 'bg-violet-100 text-violet-800'
+                              : 'bg-blue-100 text-blue-800'
+                          }`}
+                        >
+                          {t.type === 'cash_in_from_customer' && 'سحب كاش من العميل'}
+                          {t.type === 'cash_out_to_customer' && 'تحويل كاش للعميل'}
+                          {t.type === 'instapay_transfer' && 'تحويل إنستاباي (إرسال)'}
+                          {t.type === 'instapay_receive' && 'استلام إنستاباي (استقبال)'}
+                          {t.type === 'internal_transfer' && 'تحويل بين المحافظ'}
+                        </span>
+                      </td>
                     <td className="p-3 font-bold text-slate-800">{t.walletName}</td>
                     <td className="p-3 font-mono font-black text-slate-900">
                       {t.amount.toLocaleString()} {cur}

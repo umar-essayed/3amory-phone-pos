@@ -58,6 +58,11 @@ export const SettingsView: React.FC = () => {
   const [scanningPrinters, setScanningPrinters] = useState(false);
   const [resettingDb, setResettingDb] = useState(false);
   const [restoringCloud, setRestoringCloud] = useState(false);
+  const [pushingCloud, setPushingCloud] = useState(false);
+  const [showWipeModal, setShowWipeModal] = useState(false);
+  const [wipePinInput, setWipePinInput] = useState('');
+  const [wipeError, setWipeError] = useState('');
+  const [isWiping, setIsWiping] = useState(false);
 
   const loadAllPrinters = async () => {
     setScanningPrinters(true);
@@ -110,32 +115,54 @@ export const SettingsView: React.FC = () => {
     }
   };
 
-  const handleFullDbReset = async () => {
+  const handlePushAllToCloudNow = async () => {
     const confirm = await showConfirm(
-      'تحذير أمني هام: سيتم تصفير وتنظيف كافة معاملات المحل والمخزون والورديات بالكامل.\n\nسيقوم النظام تلقائياً بإنشاء نسخة احتياطية آمنة في مجلد السجلات قبل المسح. هل أنت متأكد؟',
-      'تصفير قاعدة البيانات',
-      { danger: true, confirmText: 'نعم، تصفير الآن', cancelText: 'تراجع' }
+      'سيقوم هذا الإجراء برفع ومزامنة كافة السجلات الموجودة حالياً (المخزن، الإكسسوارات، فودافون كاش، الفواتير، الورديات، العملاء، والديون) إلى سحابة Firebase مباشرة وبسرعة فائقة. هل تريد المتابعة؟',
+      'مزامنة سحابية كاملة',
+      { confirmText: 'نعم، رفع الكل للسحابة', cancelText: 'إلغاء' }
     );
     if (!confirm) return;
 
-    setResettingDb(true);
-    syncService.muteSync();
+    setPushingCloud(true);
+    const res = await syncService.pushAllLocalDataToCloud();
+    setPushingCloud(false);
+
+    if (res.success) {
+      showToast(res.message);
+    } else {
+      showAlert(res.message, 'تنبيه المزامنة السحابية', 'error');
+    }
+  };
+
+  const handleExecuteWipe = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (wipePinInput.trim() !== '2010') {
+      setWipeError('الرقم السري غير صحيح! (الرقم السري الافتراضي للتصفير هو 2010)');
+      return;
+    }
+
+    setWipeError('');
+    setIsWiping(true);
     try {
-      const res = await backupService.fullDatabaseResetWithMandatoryBackup();
+      const res = await syncService.wipeEntireDatabase(wipePinInput.trim());
       if (res.success) {
-        await showAlert(
-          `تم تصفير وتنظيف قاعدة البيانات بنجاح!\nتم حفظ نسخة الأمان الإلزامية في مجلد النسخ الاحتياطية:\n${res.backupPath || '~/elghandour-pos-backups/'}`,
-          'تم التصفير بنجاح',
-          'info'
-        );
+        setShowWipeModal(false);
+        await showAlert(res.message, 'تم التصفير الشامل', 'info');
         window.location.reload();
       } else {
-        showAlert('حدث خطأ أثناء تصفير قاعدة البيانات.', 'خطأ', 'error');
+        setWipeError(res.message);
       }
+    } catch (err: any) {
+      setWipeError(`حدث خطأ أثناء التصفير: ${err?.message || err}`);
     } finally {
-      syncService.unmuteSync();
-      setResettingDb(false);
+      setIsWiping(false);
     }
+  };
+
+  const handleFullDbReset = async () => {
+    setWipePinInput('');
+    setWipeError('');
+    setShowWipeModal(true);
   };
 
   useEffect(() => {
@@ -1172,12 +1199,39 @@ export const SettingsView: React.FC = () => {
                 </div>
               </div>
 
-              {/* 2. Firebase Cloud 2-Way Restore */}
+              {/* 2. Push All Data to Firebase Cloud */}
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-5 flex flex-col justify-between shadow-xs">
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white">
+                      <Cloud className="h-5 w-5" />
+                    </div>
+                    <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800">
+                      مزامنة سحابية فائقة
+                    </span>
+                  </div>
+                  <h4 className="font-bold text-sm text-slate-900 mb-1">رفع كل السجلات إلى السحابة فوراً</h4>
+                  <p className="text-xs text-slate-500 leading-relaxed mb-4">
+                    رفع ومزامنة كافة السجلات الموجودة محلياً (المخزون، الإكسسوارات، فودافون كاش، الفواتير، الورديات، والديون) إلى سحابة Firebase مباشرة لعرضها على لوحة المتابعة والموقع الخارجي.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handlePushAllToCloudNow}
+                  disabled={pushingCloud}
+                  className="flex items-center justify-center gap-2 w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs py-2.5 shadow transition cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${pushingCloud ? 'animate-spin' : ''}`} />
+                  <span>{pushingCloud ? 'جاري الرفع والمزامنة...' : 'رفع ومزامنة كافة البيانات للسحابة الآن'}</span>
+                </button>
+              </div>
+
+              {/* 3. Firebase Cloud 2-Way Restore */}
               <div className="rounded-2xl border border-blue-200 bg-blue-50/40 p-5 flex flex-col justify-between shadow-xs">
                 <div>
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white">
-                      <Cloud className="h-5 w-5" />
+                      <Download className="h-5 w-5" />
                     </div>
                     <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-[11px] font-bold text-blue-800">
                       سحابة Firebase
@@ -1199,7 +1253,7 @@ export const SettingsView: React.FC = () => {
                 </button>
               </div>
 
-              {/* 3. Custom File Import/Restore */}
+              {/* 4. Custom File Import/Restore */}
               <div className="rounded-2xl border border-slate-200 bg-white p-5 flex flex-col justify-between shadow-xs">
                 <div>
                   <div className="flex items-center justify-between mb-3">
@@ -1221,18 +1275,18 @@ export const SettingsView: React.FC = () => {
               </div>
             </div>
 
-            {/* DANGER ZONE: CLEAN FULL RESET */}
-            <div className="rounded-2xl border border-red-200 bg-red-50/40 p-6 shadow-xs">
+            {/* DANGER ZONE: FACTORY RESET (LOCAL & CLOUD WIPE WITH PIN: 2010) */}
+            <div className="rounded-2xl border-2 border-red-300 bg-red-50/60 p-6 shadow-xs">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2 text-red-700 font-black text-sm">
-                    <AlertCircle className="h-4 w-4 shrink-0" />
-                    <span>منطقة الخطر: تصفير وتنظيف قاعدة البيانات بالكامل (Clean Full Reset)</span>
+                    <AlertCircle className="h-5 w-5 shrink-0" />
+                    <span>منطقة الأمان القصوى: تصفير قاعدة البيانات المحلية والسحابية بالكامل (Factory Reset)</span>
                   </div>
-                  <p className="text-xs text-slate-600 leading-relaxed max-w-2xl">
-                    يقوم هذا الإجراء بمسح كافة المعاملات والمخزون والفواتير والورديات وإعادة النظام نظيفاً.
-                    <span className="font-bold text-red-700 mr-1">
-                      حفاظاً على بياناتك، يقوم النظام تلقائياً وقبل المسح بإنشاء نسخة احتياطية كاملة وتخزينها في مجلد النسخ الاحتياطية.
+                  <p className="text-xs text-slate-700 leading-relaxed max-w-2xl font-medium">
+                    يقوم هذا الإجراء بمسح شامل لكافة معاملات ومبيعات ومخزون المحل محلياً وعلى سحابة Firebase معاً، واستعادة الإعدادات الأصلية وحسابات الدخول الافتراضية.
+                    <span className="font-bold text-red-800 block mt-1">
+                      ⚠️ محمي برقم سري أمان خاص (الرقم السري الافتراضي: 2010). يتم حفظ نسخة أمان تلقائية قبل المسح.
                     </span>
                   </p>
                 </div>
@@ -1240,14 +1294,100 @@ export const SettingsView: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleFullDbReset}
-                  disabled={resettingDb}
-                  className="flex items-center justify-center gap-2 rounded-xl bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold text-xs px-5 py-3 shadow-md shadow-red-600/20 transition cursor-pointer shrink-0 disabled:opacity-50"
+                  className="flex items-center justify-center gap-2 rounded-xl bg-red-600 hover:bg-red-700 active:scale-95 text-white font-black text-xs px-6 py-3.5 shadow-lg shadow-red-600/30 transition cursor-pointer shrink-0"
                 >
                   <Trash2 className="h-4 w-4" />
-                  <span>{resettingDb ? 'جاري النسخ والتصفير...' : 'تصفير وتنظيف قاعدة البيانات'}</span>
+                  <span>تصفير قاعدة البيانات المحلية والسحابية (PIN)</span>
                 </button>
               </div>
             </div>
+
+            {/* WIPE PIN CONFIRMATION MODAL */}
+            {showWipeModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+                <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 sm:p-7 border border-red-200 space-y-5 animate-in zoom-in-95 duration-200">
+                  <div className="flex items-center gap-3 text-red-600">
+                    <div className="h-12 w-12 rounded-2xl bg-red-100 flex items-center justify-center shrink-0">
+                      <ShieldAlert className="h-6 w-6 text-red-600" />
+                    </div>
+                    <div>
+                      <h3 className="font-display font-black text-lg text-slate-900">
+                        تأكيد التصفير الشامل لقاعدة البيانات
+                      </h3>
+                      <p className="text-xs text-slate-500 font-bold">
+                        محلياً وعلى سحابة Firebase بالكامل
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="bg-red-50 rounded-2xl p-4 border border-red-200/80 text-xs text-red-800 space-y-2 leading-relaxed">
+                    <p className="font-bold">
+                      ⚠️ تحذير: سيتم حذف كافة الفواتير، المخزون، معاملات الكاش، الورديات، والديون نهائياً.
+                    </p>
+                    <p className="text-[11px] text-slate-600 font-bold">
+                      يرجى إدخال الرقم السري للتأكيد (الافتراضي: <strong className="font-mono text-red-700">2010</strong>).
+                    </p>
+                  </div>
+
+                  <form onSubmit={handleExecuteWipe} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                        الرقم السري لتأكيد التصفير:
+                      </label>
+                      <input
+                        type="password"
+                        autoFocus
+                        value={wipePinInput}
+                        onChange={(e) => {
+                          setWipePinInput(e.target.value);
+                          setWipeError('');
+                        }}
+                        placeholder="أدخل الرقم السري (2010)"
+                        className="w-full text-center tracking-widest text-xl font-mono font-black bg-slate-50 border border-slate-300 rounded-xl p-3 focus:outline-none focus:border-red-500 focus:bg-white"
+                      />
+                      {wipeError && (
+                        <p className="text-xs font-bold text-red-600 mt-1.5 text-center">
+                          {wipeError}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-3 pt-2">
+                      <button
+                        type="submit"
+                        disabled={isWiping}
+                        className="flex-1 py-3 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-black text-sm rounded-xl shadow-md shadow-red-600/20 transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        {isWiping ? (
+                          <>
+                            <RefreshCw className="h-4 w-4 animate-spin" />
+                            <span>جاري التصفير الشامل...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Trash2 className="h-4 w-4" />
+                            <span>تأكيد التصفير النهائي الآن</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={isWiping}
+                        onClick={() => {
+                          setShowWipeModal(false);
+                          setWipePinInput('');
+                          setWipeError('');
+                        }}
+                        className="px-5 py-3 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold text-sm rounded-xl transition cursor-pointer"
+                      >
+                        إلغاء
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

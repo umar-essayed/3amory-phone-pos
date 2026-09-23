@@ -56,6 +56,12 @@ export class MobilePosDatabase extends Dexie {
     this.version(2).stores({
       debtTransactions: 'id, partyType, partyId, shiftId, type, createdAt',
     });
+
+    // Multi-tab concurrency & version change handler
+    this.on('versionchange', () => {
+      this.close();
+      return false;
+    });
   }
 }
 

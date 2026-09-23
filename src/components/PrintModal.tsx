@@ -281,13 +281,14 @@ export const PrintModal: React.FC = () => {
                   <span className="font-bold text-blue-700">
                     {walletTx.type === 'cash_out_to_customer' && 'إيداع / تحويل كاش للعميل'}
                     {walletTx.type === 'cash_in_from_customer' && 'سحب كاش من العميل'}
-                    {walletTx.type === 'instapay_transfer' && 'تحويل إنستاباي بنكي'}
+                    {walletTx.type === 'instapay_transfer' && 'تحويل إنستاباي للعميل (إرسال)'}
+                    {walletTx.type === 'instapay_receive' && 'استلام إنستاباي من العميل (استقبال)'}
                     {walletTx.type === 'internal_transfer' && 'تحويل بين محافظ المحل'}
                   </span>
                 </div>
                 <div className="flex justify-between text-xs">
                   <span>رقم هاتف / حساب العميل:</span>
-                  <strong className="font-mono text-sm">{walletTx.customerPhone}</strong>
+                  <strong className="font-mono text-sm">{walletTx.customerPhone || '-'}</strong>
                 </div>
                 {walletTx.customerName && (
                   <div className="flex justify-between text-xs">
@@ -297,19 +298,19 @@ export const PrintModal: React.FC = () => {
                 )}
                 <div className="border-t border-b border-dashed py-2 space-y-1">
                   <div className="flex justify-between text-xs">
-                    <span>مبلغ التحويل:</span>
-                    <strong className="font-mono">{walletTx.amount.toLocaleString()} {settings.currency}</strong>
+                    <span>مبلغ العملية:</span>
+                    <strong className="font-mono">{(walletTx.amount || 0).toLocaleString()} {settings.currency}</strong>
                   </div>
                   <div className="flex justify-between text-xs">
                     <span>رسوم / عمولة الخدمة:</span>
-                    <strong className="font-mono">{walletTx.commission.toLocaleString()} {settings.currency}</strong>
+                    <strong className="font-mono">{(walletTx.commission || 0).toLocaleString()} {settings.currency}</strong>
                   </div>
                   <div className="flex justify-between text-sm font-black pt-1 border-t">
                     <span>الإجمالي المدفوع / المستلم:</span>
                     <span>
-                      {(walletTx.type === 'cash_out_to_customer'
-                        ? walletTx.amount + walletTx.commission
-                        : walletTx.amount - walletTx.commission
+                      {((walletTx.type === 'cash_out_to_customer' || walletTx.type === 'instapay_transfer')
+                        ? (walletTx.amount || 0) + (walletTx.commission || 0)
+                        : (walletTx.amount || 0) - (walletTx.commission || 0)
                       ).toLocaleString()} {settings.currency}
                     </span>
                   </div>
@@ -420,44 +421,44 @@ export const PrintModal: React.FC = () => {
                 <div className="bg-slate-50 p-2 rounded space-y-1 border">
                   <div className="flex justify-between">
                     <span>رصيد الكاش الافتتاحي:</span>
-                    <span>{shift.openingCash.toLocaleString()} {settings.currency}</span>
+                    <span>{(shift.openingCash || 0).toLocaleString()} {settings.currency}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>مبيعات الكاش في الوردية:</span>
-                    <span>{shift.totalSalesCash.toLocaleString()} {settings.currency}</span>
+                    <span>{(shift.totalSalesCash || 0).toLocaleString()} {settings.currency}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>كاش داخل من تحويلات المحافظ:</span>
-                    <span>{shift.totalWalletIn.toLocaleString()} {settings.currency}</span>
+                    <span>{(shift.totalWalletIn || 0).toLocaleString()} {settings.currency}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>كاش خارج لسحوبات العملاء:</span>
-                    <span>-{shift.totalWalletOut.toLocaleString()} {settings.currency}</span>
+                    <span>-{(shift.totalWalletOut || 0).toLocaleString()} {settings.currency}</span>
                   </div>
                   <div className="flex justify-between text-red-600">
                     <span>المصروفات النثرية:</span>
-                    <span>-{shift.totalExpenses.toLocaleString()} {settings.currency}</span>
+                    <span>-{(shift.totalExpenses || 0).toLocaleString()} {settings.currency}</span>
                   </div>
                   <div className="flex justify-between font-bold border-t pt-1">
                     <span>الكاش المفترض بالدرج (السيستم):</span>
-                    <span>{shift.closingCashSystem.toLocaleString()} {settings.currency}</span>
+                    <span>{(shift.closingCashSystem || 0).toLocaleString()} {settings.currency}</span>
                   </div>
                   <div className="flex justify-between font-bold border-t pt-1">
                     <span>الكاش الفعلي المعدود بالدرج:</span>
-                    <span>{shift.closingCashActual.toLocaleString()} {settings.currency}</span>
+                    <span>{(shift.closingCashActual || 0).toLocaleString()} {settings.currency}</span>
                   </div>
                   <div className={`flex justify-between font-black text-sm p-1 rounded ${
-                    shift.cashDifference === 0
+                    (shift.cashDifference || 0) === 0
                       ? 'bg-emerald-100 text-emerald-800'
-                      : shift.cashDifference > 0
+                      : (shift.cashDifference || 0) > 0
                       ? 'bg-blue-100 text-blue-800'
                       : 'bg-red-100 text-red-800'
                   }`}>
                     <span>الفارق (العجز / الزيادة):</span>
                     <span>
-                      {shift.cashDifference === 0 && 'مطابق تماماً (0)'}
-                      {shift.cashDifference > 0 && `زيادة +${shift.cashDifference} ${settings.currency}`}
-                      {shift.cashDifference < 0 && `عجز ${shift.cashDifference} ${settings.currency}`}
+                      {(shift.cashDifference || 0) === 0 && 'مطابق تماماً (0)'}
+                      {(shift.cashDifference || 0) > 0 && `زيادة +${shift.cashDifference} ${settings.currency}`}
+                      {(shift.cashDifference || 0) < 0 && `عجز ${shift.cashDifference} ${settings.currency}`}
                     </span>
                   </div>
                 </div>

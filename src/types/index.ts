@@ -139,7 +139,8 @@ export interface WalletTransaction {
   type:
     | 'cash_out_to_customer' // إيداع للعميل: العميل يدفع كاش للمحل والمحل يحول لمحفظته
     | 'cash_in_from_customer' // سحب من العميل: العميل يحول لمحفظة المحل والمحل يسلمه كاش
-    | 'instapay_transfer'     // تحويل إنستاباي
+    | 'instapay_transfer'     // تحويل إنستاباي للعميل (إرسال)
+    | 'instapay_receive'      // استلام إنستاباي من العميل (استقبال)
     | 'internal_transfer'     // تحويل بين خطوط ومحافظ المحل
     | 'balance_adjustment';   // تعديل رصيد
   amount: number;

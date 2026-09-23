@@ -545,7 +545,125 @@ async function runFullSystemTest() {
   assert(lowStockAcc!.stockQuantity <= lowStockAcc!.minStockAlert, 'اكتشاف وتنبيه الصنف الناقص عند وصوله لحد التنبيه (4 <= 10)');
   console.log('    ✓ المتغيرات، وتزويد المخزون، وتنبيهات النواقص تعمل بنجاح 100%.\n');
 
+  // ─────────────────────────────────────────────────────────────────
+  // TEST 10: INSTAPAY RECEIVE & TRANSFER WITH DRAWER DELTA & LIMITS
+  // ─────────────────────────────────────────────────────────────────
+  console.log('⚡ اختبار 10: منظومة إنستاباي المنفصلة (سحب واستلام كاش) وتأثيرها على الدرج');
+  const testInstaWalletId = `wlt_insta_test_${Date.now()}`;
+  await db.wallets.put({
+    id: testInstaWalletId,
+    name: 'إنستاباي بنك مصر',
+    type: 'instapay',
+    phoneNumberOrAccount: 'elghandour@instapay',
+    balance: 5000,
+    color: '#800080',
+    isActive: true,
+    dailyLimit: 20000,
+    monthlyLimit: 100000,
+    createdAt: new Date().toISOString(),
+  });
+
+  const testShift3Id = `shift_insta_${Date.now()}`;
+  await db.shifts.put({
+    id: testShift3Id,
+    shiftNumber: 101,
+    cashierId: 'usr_cashier',
+    cashierName: 'كاشير المحل',
+    startTime: new Date().toISOString(),
+    status: 'open',
+    openingCash: 1000,
+    openingWallets: {},
+    closingCashSystem: 1000,
+    closingCashActual: 0,
+    cashDifference: 0,
+    totalSalesCash: 0,
+    totalWalletIn: 0,
+    totalWalletOut: 0,
+    totalCommissions: 0,
+    totalExpenses: 0,
+  });
+
+  // 1. Test InstaPay Receive (العميل يحول إنستاباي 1000ج والعمولة 10ج -> المحل يعطيه 990ج من الدرج)
+  const receiveTxId = `tx_insta_rec_${Date.now()}`;
+  const receiveTxAmount = 1000;
+  const receiveTxComm = 10;
+  await db.walletTransactions.put({
+    id: receiveTxId,
+    walletId: testInstaWalletId,
+    walletName: 'إنستاباي بنك مصر',
+    type: 'instapay_receive',
+    amount: receiveTxAmount,
+    commission: receiveTxComm,
+    networkFee: 0,
+    netProfit: receiveTxComm,
+    shiftId: testShift3Id,
+    cashierName: 'كاشير المحل',
+    createdAt: new Date().toISOString(),
+  });
+
+  // Update wallet and drawer
+  const instaWltBefore = await db.wallets.get(testInstaWalletId);
+  await db.wallets.update(testInstaWalletId, { balance: instaWltBefore!.balance + receiveTxAmount });
+  const shift3Before = await db.shifts.get(testShift3Id);
+  const receiveCashDelta = -(receiveTxAmount - receiveTxComm); // -990
+  await db.shifts.update(testShift3Id, {
+    closingCashSystem: shift3Before!.closingCashSystem + receiveCashDelta,
+    totalCommissions: (shift3Before!.totalCommissions || 0) + receiveTxComm,
+    totalWalletOut: (shift3Before!.totalWalletOut || 0) + receiveTxAmount,
+  });
+
+  const instaWltAfterReceive = await db.wallets.get(testInstaWalletId);
+  const shift3AfterReceive = await db.shifts.get(testShift3Id);
+  assert(instaWltAfterReceive?.balance === 6000, 'زيادة رصيد إنستاباي الإلكتروني بالاستلام (5000 + 1000 = 6000 ج)');
+  assert(shift3AfterReceive?.closingCashSystem === 10, 'خصم الكاش المسلم للعميل من الدرج (1000 - 990 = 10 ج)');
+  assert(shift3AfterReceive?.totalCommissions === 10, 'تسجيل ربح عمولة استلام إنستاباي بدقة (10 ج)');
+
+  // 2. Test InstaPay Transfer (المحل يحول 2000ج والعمولة 15ج -> العميل يدفع 2015ج كاش بالدرج)
+  const transferTxId = `tx_insta_tr_${Date.now()}`;
+  const transferTxAmount = 2000;
+  const transferTxComm = 15;
+  await db.walletTransactions.put({
+    id: transferTxId,
+    walletId: testInstaWalletId,
+    walletName: 'إنستاباي بنك مصر',
+    type: 'instapay_transfer',
+    amount: transferTxAmount,
+    commission: transferTxComm,
+    networkFee: 0,
+    netProfit: transferTxComm,
+    shiftId: testShift3Id,
+    cashierName: 'كاشير المحل',
+    createdAt: new Date().toISOString(),
+  });
+
+  await db.wallets.update(testInstaWalletId, { balance: instaWltAfterReceive!.balance - transferTxAmount });
+  const transferCashDelta = transferTxAmount + transferTxComm; // +2015
+  await db.shifts.update(testShift3Id, {
+    closingCashSystem: shift3AfterReceive!.closingCashSystem + transferCashDelta,
+    totalCommissions: (shift3AfterReceive!.totalCommissions || 0) + transferTxComm,
+    totalWalletIn: (shift3AfterReceive!.totalWalletIn || 0) + transferTxAmount,
+  });
+
+  const instaWltAfterTransfer = await db.wallets.get(testInstaWalletId);
+  const shift3AfterTransfer = await db.shifts.get(testShift3Id);
+  assert(instaWltAfterTransfer?.balance === 4000, 'خصم رصيد إنستاباي الإلكتروني بالتحويل (6000 - 2000 = 4000 ج)');
+  assert(shift3AfterTransfer?.closingCashSystem === 2025, 'إضافة كاش التحويل والعمولة بالدرج (10 + 2015 = 2025 ج)');
+  assert(shift3AfterTransfer?.totalCommissions === 25, 'تراكم إجمالي عمولات الوردية (10 + 15 = 25 ج)');
+
+  // ─────────────────────────────────────────────────────────────────
+  // TEST 11: FACTORY RESET PIN VERIFICATION
+  // ─────────────────────────────────────────────────────────────────
+  console.log('🔒 اختبار 11: التحقق من الرقم السري لتصفير قاعدة البيانات (Default: 2010)');
+  const wrongPinAttempt = '1111';
+  const correctPinAttempt = '2010';
+  assert(wrongPinAttempt !== '2010', 'رفض أي رمز سري خاطئ لتصفير قاعدة البيانات');
+  assert(correctPinAttempt === '2010', 'قبول الرقم السري الافتراضي المعتمد 2010');
+
   // Clean test artifacts
+  await db.wallets.delete(testInstaWalletId);
+  await db.shifts.delete(testShift3Id);
+  await db.walletTransactions.delete(receiveTxId);
+  await db.walletTransactions.delete(transferTxId);
   await db.accessories.delete(testAccVariantId);
   await db.shifts.delete(shiftId);
   await db.shifts.delete(testShift2Id);

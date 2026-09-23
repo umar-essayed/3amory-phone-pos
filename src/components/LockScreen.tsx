@@ -29,13 +29,52 @@ const ROLE_CONFIG: Record<string, { label: string; icon: React.ElementType; colo
 };
 
 export const LockScreen: React.FC<LockScreenProps> = ({ onLogin, logoUrl, storeName }) => {
-  const users = useLiveQuery(() => db.users.filter((u) => u.isActive).toArray()) || [];
+  const usersRaw = useLiveQuery(() => db.users.filter((u) => u.isActive).toArray());
+  const users = usersRaw || [];
   const settings = useLiveQuery(() => db.settings.get(1));
 
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [pin, setPin] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [shake, setShake] = useState(false);
+  const [isHealing, setIsHealing] = useState(false);
+
+  // Self-heal default users if Dexie query completes but users table is empty
+  useEffect(() => {
+    if (usersRaw !== undefined && usersRaw.length === 0 && !isHealing) {
+      setIsHealing(true);
+      (async () => {
+        try {
+          await db.users.bulkPut([
+            {
+              id: 'usr_admin',
+              name: 'المدير العام (المالك)',
+              displayName: 'المدير العام (المالك)',
+              username: 'admin',
+              pin: '1234',
+              role: 'owner',
+              isActive: true,
+              createdAt: new Date().toISOString(),
+            },
+            {
+              id: 'usr_cashier',
+              name: 'كاشير المحل',
+              displayName: 'كاشير المحل',
+              username: 'cashier',
+              pin: '0000',
+              role: 'cashier',
+              isActive: true,
+              createdAt: new Date().toISOString(),
+            },
+          ]);
+        } catch (e) {
+          console.warn('Auto-heal users note:', e);
+        } finally {
+          setIsHealing(false);
+        }
+      })();
+    }
+  }, [usersRaw, isHealing]);
 
   // Auto-select first user if only one exists or default
   useEffect(() => {
@@ -141,36 +180,79 @@ export const LockScreen: React.FC<LockScreenProps> = ({ onLogin, logoUrl, storeN
               <h2 className="font-display text-base font-bold">اختر حساب المستخدم لتسجيل الدخول:</h2>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-80 overflow-y-auto p-1">
-              {users.map((u) => {
-                const roleConfig = ROLE_CONFIG[u.role] || ROLE_CONFIG.cashier;
-                const RoleIcon = roleConfig.icon;
-                return (
-                  <button
-                    key={u.id}
-                    onClick={() => {
-                      setSelectedUser(u);
-                      setPin('');
-                      setErrorMsg('');
-                    }}
-                    className="flex items-center gap-4 p-4 rounded-2xl border-2 border-slate-200 bg-white hover:border-blue-500 hover:shadow-lg transition-all duration-200 active:scale-95 text-right group cursor-pointer"
-                  >
-                    <div className={`h-12 w-12 rounded-xl flex items-center justify-center font-black text-lg ${roleConfig.bg} ${roleConfig.color} shadow-sm group-hover:scale-105 transition`}>
-                      {(u.displayName || u.username).charAt(0).toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-black text-slate-900 text-sm truncate group-hover:text-blue-600 transition">
-                        {u.displayName || u.username}
-                      </p>
-                      <div className="flex items-center gap-1.5 mt-1">
-                        <RoleIcon className={`h-3.5 w-3.5 ${roleConfig.color}`} />
-                        <span className="text-[11px] font-bold text-slate-500">{roleConfig.label}</span>
+            {usersRaw === undefined || isHealing ? (
+              <div className="flex flex-col items-center justify-center py-10 gap-3">
+                <div className="h-9 w-9 rounded-full border-3 border-blue-600 border-t-transparent animate-spin" />
+                <span className="text-xs text-slate-500 font-bold">جاري تحميل وفحص حسابات المستخدمين...</span>
+              </div>
+            ) : users.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-8 gap-4 bg-slate-50 rounded-2xl border border-slate-200 p-6 text-center">
+                <p className="text-sm font-bold text-slate-700">لم يتم العثور على أي حسابات نشطة حالياً</p>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setIsHealing(true);
+                    await db.users.bulkPut([
+                      {
+                        id: 'usr_admin',
+                        name: 'المدير العام (المالك)',
+                        displayName: 'المدير العام (المالك)',
+                        username: 'admin',
+                        pin: '1234',
+                        role: 'owner',
+                        isActive: true,
+                        createdAt: new Date().toISOString(),
+                      },
+                      {
+                        id: 'usr_cashier',
+                        name: 'كاشير المحل',
+                        displayName: 'كاشير المحل',
+                        username: 'cashier',
+                        pin: '0000',
+                        role: 'cashier',
+                        isActive: true,
+                        createdAt: new Date().toISOString(),
+                      },
+                    ]);
+                    setIsHealing(false);
+                  }}
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black shadow-md transition active:scale-95 cursor-pointer"
+                >
+                  استعادة حسابات المدير والكاشير الافتراضية فوراً
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-80 overflow-y-auto p-1">
+                {users.map((u) => {
+                  const roleConfig = ROLE_CONFIG[u.role] || ROLE_CONFIG.cashier;
+                  const RoleIcon = roleConfig.icon;
+                  return (
+                    <button
+                      key={u.id}
+                      onClick={() => {
+                        setSelectedUser(u);
+                        setPin('');
+                        setErrorMsg('');
+                      }}
+                      className="flex items-center gap-4 p-4 rounded-2xl border-2 border-slate-200 bg-white hover:border-blue-500 hover:shadow-lg transition-all duration-200 active:scale-95 text-right group cursor-pointer"
+                    >
+                      <div className={`h-12 w-12 rounded-xl flex items-center justify-center font-black text-lg ${roleConfig.bg} ${roleConfig.color} shadow-sm group-hover:scale-105 transition`}>
+                        {(u.displayName || u.username).charAt(0).toUpperCase()}
                       </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-black text-slate-900 text-sm truncate group-hover:text-blue-600 transition">
+                          {u.displayName || u.username}
+                        </p>
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <RoleIcon className={`h-3.5 w-3.5 ${roleConfig.color}`} />
+                          <span className="text-[11px] font-bold text-slate-500">{roleConfig.label}</span>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         ) : (
           /* Step 2: PIN Entry Screen */

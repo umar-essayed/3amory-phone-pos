@@ -3,7 +3,7 @@
 // Writes to local IndexedDB in 0ms, queues in background, and auto-syncs with Firebase
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { db } from '../db';
+import { db, DEFAULT_SETTINGS } from '../db';
 import { initFirebase } from './firebase';
 import { systemLogger } from './logger';
 import { backupService } from './backupService';
@@ -289,12 +289,20 @@ class SyncService {
         totalRestored += accs.length;
       }
 
-      // 8. Users
+      // 9. Users
       const userSnap = await getDocs(collection(fDb, 'stores', PROJECT_ID, 'users'));
       if (!userSnap.empty) {
         const users = userSnap.docs.map((d) => d.data() as any);
         await db.users.bulkPut(users);
         totalRestored += users.length;
+      }
+
+      // 10. Debt Transactions
+      const debtSnap = await getDocs(collection(fDb, 'stores', PROJECT_ID, 'debtTransactions'));
+      if (!debtSnap.empty) {
+        const debts = debtSnap.docs.map((d) => d.data() as any);
+        await db.debtTransactions.bulkPut(debts);
+        totalRestored += debts.length;
       }
 
       // Save persistent mirror
@@ -307,6 +315,211 @@ class SyncService {
       };
     } catch (err: any) {
       return { success: false, message: `فشل استعادة البيانات من السحابة: ${err?.message || err}` };
+    } finally {
+      this.unmuteSync();
+    }
+  }
+
+  /**
+   * Pushes ALL local tables directly to Firebase Firestore
+   * Ensures 100% full coverage for external website / dashboard
+   */
+  public async pushAllLocalDataToCloud(): Promise<{ success: boolean; count: number; message: string }> {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return { success: false, count: 0, message: 'الجهاز غير متصل بالإنترنت حالياً.' };
+    }
+
+    try {
+      const fDb = initFirebase();
+      if (!fDb) {
+        return { success: false, count: 0, message: 'تعذر الاتصال بـ Firebase.' };
+      }
+
+      let totalPushed = 0;
+      const collectionsToPush: { name: string; table: any }[] = [
+        { name: 'settings', table: db.settings },
+        { name: 'users', table: db.users },
+        { name: 'phones', table: db.phones },
+        { name: 'accessories', table: db.accessories },
+        { name: 'wallets', table: db.wallets },
+        { name: 'walletTransactions', table: db.walletTransactions },
+        { name: 'invoices', table: db.invoices },
+        { name: 'repairs', table: db.repairs },
+        { name: 'shifts', table: db.shifts },
+        { name: 'expenses', table: db.expenses },
+        { name: 'customers', table: db.customers },
+        { name: 'suppliers', table: db.suppliers },
+        { name: 'debtTransactions', table: db.debtTransactions },
+      ];
+
+      for (const col of collectionsToPush) {
+        const records = await col.table.toArray();
+        for (const record of records) {
+          const docId = String(record.id ?? record.shiftNumber ?? record.invoiceNumber ?? Date.now());
+          const docRef = doc(fDb, 'stores', PROJECT_ID, col.name, docId);
+          await setDoc(docRef, record, { merge: true });
+          totalPushed++;
+        }
+      }
+
+      // Also set the root store summary doc
+      const settings = await db.settings.get(1);
+      if (settings) {
+        await setDoc(
+          doc(fDb, 'stores', PROJECT_ID),
+          {
+            storeName: settings.storeName,
+            storeNameEn: settings.storeNameEn,
+            lastSyncTime: new Date().toISOString(),
+            settings,
+          },
+          { merge: true }
+        );
+      }
+
+      await db.settings.update(1, { lastSyncTime: new Date().toISOString() });
+      await systemLogger.logInit(`[CLOUD-SYNC] تم رفع ومزامنة كافة السجلات (${totalPushed} سجل) إلى سحابة Firebase بنجاح.`);
+
+      return {
+        success: true,
+        count: totalPushed,
+        message: `تم رفع ومزامنة ${totalPushed} سجل بنجاح إلى سحابة Firebase!`,
+      };
+    } catch (err: any) {
+      console.error('Push all to cloud error:', err);
+      return { success: false, count: 0, message: `فشل المزامنة السحابية: ${err?.message || err}` };
+    }
+  }
+
+  /**
+   * Complete Factory Reset: Wipes both Local Dexie DB and Cloud Firestore DB
+   * Protected with secret PIN (default: '2010')
+   */
+  public async wipeEntireDatabase(pin: string): Promise<{ success: boolean; message: string }> {
+    if (pin.trim() !== '2010') {
+      return { success: false, message: 'رمز الأمان السري غير صحيح! لا يمكن إتمام التصفير.' };
+    }
+
+    this.muteSync();
+    try {
+      await systemLogger.logInit('[FACTORY-RESET] بدء تصفير وتنظيف شامل لقاعدة البيانات المحلية والسحابية...');
+
+      // 1. Mandatory local safety backup before wipe
+      await backupService.saveManualBackup().catch(() => {});
+
+      // 2. Wipe Firebase Cloud Firestore if online
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        try {
+          const fDb = initFirebase();
+          if (fDb) {
+            const collectionsToDelete = [
+              'settings',
+              'users',
+              'phones',
+              'accessories',
+              'wallets',
+              'walletTransactions',
+              'invoices',
+              'repairs',
+              'shifts',
+              'expenses',
+              'customers',
+              'suppliers',
+              'debtTransactions',
+            ];
+
+            for (const colName of collectionsToDelete) {
+              const snap = await getDocs(collection(fDb, 'stores', PROJECT_ID, colName));
+              for (const d of snap.docs) {
+                await deleteDoc(d.ref);
+              }
+            }
+
+            // Delete store root document
+            await deleteDoc(doc(fDb, 'stores', PROJECT_ID));
+          }
+        } catch (cloudErr) {
+          console.warn('Wipe cloud subcollections note:', cloudErr);
+        }
+      }
+
+      // 3. Clear all Dexie local tables
+      await db.transaction(
+        'rw',
+        [
+          db.phones,
+          db.accessories,
+          db.invoices,
+          db.walletTransactions,
+          db.wallets,
+          db.shifts,
+          db.expenses,
+          db.repairs,
+          db.customers,
+          db.suppliers,
+          db.debtTransactions,
+          db.syncQueue,
+          db.users,
+          db.settings,
+        ],
+        async () => {
+          await db.phones.clear();
+          await db.accessories.clear();
+          await db.invoices.clear();
+          await db.walletTransactions.clear();
+          await db.wallets.clear();
+          await db.shifts.clear();
+          await db.expenses.clear();
+          await db.repairs.clear();
+          await db.customers.clear();
+          await db.suppliers.clear();
+          await db.debtTransactions.clear();
+          await db.syncQueue.clear();
+          await db.users.clear();
+          await db.settings.clear();
+        }
+      );
+
+      // 4. Restore fresh default settings & default users
+      await db.settings.put({ ...DEFAULT_SETTINGS, id: 1 });
+      await db.users.bulkPut([
+        {
+          id: 'usr_admin',
+          name: 'المدير العام (المالك)',
+          displayName: 'المدير العام (المالك)',
+          username: 'admin',
+          pin: '1234',
+          role: 'owner',
+          isActive: true,
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: 'usr_cashier',
+          name: 'كاشير المحل',
+          displayName: 'كاشير المحل',
+          username: 'cashier',
+          pin: '0000',
+          role: 'cashier',
+          isActive: true,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+
+      // 5. Update local mirror on desktop
+      await backupService.saveDatabaseMirror();
+
+      await systemLogger.logInit('[FACTORY-RESET] اكتمل تصفير وتنظيف قاعدة البيانات المحلية والسحابية بنجاح.');
+
+      return {
+        success: true,
+        message: 'تم تصفير قاعدة البيانات المحلية والسحابية بالكامل بنجاح، واستعادة الإعدادات والحسابات الافتراضية!',
+      };
+    } catch (err: any) {
+      console.error('Factory reset error:', err);
+      return {
+        success: false,
+        message: `حدث خطأ أثناء التصفير الشامل: ${err?.message || err}`,
+      };
     } finally {
       this.unmuteSync();
     }
@@ -333,6 +546,7 @@ class SyncService {
           db.expenses,
           db.customers,
           db.suppliers,
+          db.debtTransactions,
         ],
         async () => {
           if (data.settings?.length) {
@@ -383,6 +597,10 @@ class SyncService {
             await db.suppliers.clear();
             await db.suppliers.bulkPut(data.suppliers);
           }
+          if (data.debtTransactions?.length) {
+            await db.debtTransactions.clear();
+            await db.debtTransactions.bulkPut(data.debtTransactions);
+          }
         }
       );
     } finally {
@@ -411,6 +629,7 @@ export function attachDexieSyncHooks(database: typeof db) {
     'expenses',
     'customers',
     'suppliers',
+    'debtTransactions',
   ];
 
   for (const tableName of syncableTables) {

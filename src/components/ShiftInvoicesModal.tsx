@@ -22,6 +22,7 @@ import {
   RefreshCw,
   Wallet as WalletIcon,
   CheckCircle2,
+  CreditCard,
 } from 'lucide-react';
 import { db } from '../db';
 import { triggerPrint } from '../services/printer';
@@ -51,7 +52,7 @@ export const ShiftInvoicesModal: React.FC<ShiftInvoicesModalProps> = ({
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState<'all' | 'completed' | 'partially_returned' | 'returned'>('all');
-  const [walletTypeFilter, setWalletTypeFilter] = useState<'all' | 'cash_in_from_customer' | 'cash_out_to_customer' | 'instapay_transfer' | 'internal_transfer'>('all');
+  const [walletTypeFilter, setWalletTypeFilter] = useState<'all' | 'cash_in_from_customer' | 'cash_out_to_customer' | 'instapay_transfer' | 'instapay_receive' | 'internal_transfer'>('all');
 
   const [expandedInvoiceId, setExpandedInvoiceId] = useState<string | null>(null);
   const [selectedInvoiceForReturn, setSelectedInvoiceForReturn] = useState<SaleInvoice | null>(null);
@@ -321,7 +322,8 @@ export const ShiftInvoicesModal: React.FC<ShiftInvoicesModalProps> = ({
                     { id: 'all', label: 'كافة العمليات' },
                     { id: 'cash_in_from_customer', label: 'سحب كاش' },
                     { id: 'cash_out_to_customer', label: 'تحويل كاش' },
-                    { id: 'instapay_transfer', label: 'إنستاباي' },
+                    { id: 'instapay_transfer', label: 'تحويل إنستاباي' },
+                    { id: 'instapay_receive', label: 'استلام إنستاباي' },
                     { id: 'internal_transfer', label: 'تحويل داخلي' },
                   ] as const
                 ).map((tab) => (
@@ -560,7 +562,8 @@ export const ShiftInvoicesModal: React.FC<ShiftInvoicesModalProps> = ({
                   {filteredWalletTransactions.map((tx) => {
                     const isCashIn = tx.type === 'cash_in_from_customer';
                     const isCashOut = tx.type === 'cash_out_to_customer';
-                    const isInstapay = tx.type === 'instapay_transfer';
+                    const isInstapayTransfer = tx.type === 'instapay_transfer';
+                    const isInstapayReceive = tx.type === 'instapay_receive';
                     const isInternal = tx.type === 'internal_transfer';
                     const profit = tx.netProfit ?? tx.commission ?? 0;
 
@@ -576,14 +579,17 @@ export const ShiftInvoicesModal: React.FC<ShiftInvoicesModalProps> = ({
                                 ? 'bg-emerald-100 text-emerald-700'
                                 : isCashOut
                                 ? 'bg-rose-100 text-rose-700'
-                                : isInstapay
+                                : isInstapayTransfer
                                 ? 'bg-purple-100 text-purple-700'
+                                : isInstapayReceive
+                                ? 'bg-violet-100 text-violet-700'
                                 : 'bg-blue-100 text-blue-700'
                             }`}
                           >
                             {isCashIn && <ArrowUpRight className="h-5 w-5" />}
                             {isCashOut && <ArrowDownLeft className="h-5 w-5" />}
-                            {isInstapay && <Send className="h-5 w-5" />}
+                            {isInstapayTransfer && <Send className="h-5 w-5" />}
+                            {isInstapayReceive && <CreditCard className="h-5 w-5" />}
                             {isInternal && <RefreshCw className="h-5 w-5" />}
                           </div>
 
@@ -595,14 +601,17 @@ export const ShiftInvoicesModal: React.FC<ShiftInvoicesModalProps> = ({
                                     ? 'bg-emerald-100 text-emerald-800'
                                     : isCashOut
                                     ? 'bg-rose-100 text-rose-800'
-                                    : isInstapay
+                                    : isInstapayTransfer
                                     ? 'bg-purple-100 text-purple-800'
+                                    : isInstapayReceive
+                                    ? 'bg-violet-100 text-violet-800'
                                     : 'bg-blue-100 text-blue-800'
                                 }`}
                               >
                                 {isCashIn && 'سحب كاش من العميل'}
                                 {isCashOut && 'تحويل كاش للعميل'}
-                                {isInstapay && 'تحويل إنستاباي'}
+                                {isInstapayTransfer && 'تحويل إنستاباي للعميل'}
+                                {isInstapayReceive && 'استلام إنستاباي من العميل'}
                                 {isInternal && 'تحويل داخلي بين الخطوط'}
                               </span>
 
