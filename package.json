@@ -1,7 +1,7 @@
 {
   "name": "elghandour-phone-pos",
   "productName": "El Ghandour Phone POS",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "الغندور فون (El Ghandour Phone) - Professional Mobile POS & Wallets Management System",
   "type": "module",
   "main": "electron/main.cjs",

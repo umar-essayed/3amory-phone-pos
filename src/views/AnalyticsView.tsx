@@ -400,40 +400,33 @@ export const AnalyticsView: React.FC = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {wallets.map((w) => {
-            const todayStr = now.toDateString();
-            const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-            const curMonth = now.getMonth();
-            const curYear = now.getFullYear();
+            const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+            const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).getTime();
 
-            // Outgoing transfers (cash out / instapay)
+            // Outgoing transfers (cash out / instapay) - strictly counts pure transfer principal (t.amount)
             const walletOutgoing = walletTx.filter(
               (t) => t.walletId === w.id && (t.type === 'cash_out_to_customer' || t.type === 'instapay_transfer')
             );
             const todayOut = walletOutgoing
-              .filter((t) => new Date(t.createdAt).toDateString() === todayStr)
+              .filter((t) => new Date(t.createdAt).getTime() >= startOfToday)
               .reduce((s, t) => s + t.amount, 0);
 
             const monthOut = walletOutgoing
-              .filter((t) => {
-                const d = new Date(t.createdAt);
-                return d.getMonth() === curMonth && d.getFullYear() === curYear;
-              })
+              .filter((t) => new Date(t.createdAt).getTime() >= startOfMonth)
               .reduce((s, t) => s + t.amount, 0);
 
             // Profits from commissions
             const walletTxList = walletTx.filter((t) => t.walletId === w.id);
             const profitToday = walletTxList
-              .filter((t) => new Date(t.createdAt).toDateString() === todayStr)
-              .reduce((s, t) => s + t.commission, 0);
+              .filter((t) => new Date(t.createdAt).getTime() >= startOfToday)
+              .reduce((s, t) => s + (t.netProfit ?? t.commission ?? 0), 0);
             const profitWeek = walletTxList
-              .filter((t) => new Date(t.createdAt) >= oneWeekAgo)
-              .reduce((s, t) => s + t.commission, 0);
+              .filter((t) => new Date(t.createdAt).getTime() >= oneWeekAgo)
+              .reduce((s, t) => s + (t.netProfit ?? t.commission ?? 0), 0);
             const profitMonth = walletTxList
-              .filter((t) => {
-                const d = new Date(t.createdAt);
-                return d.getMonth() === curMonth && d.getFullYear() === curYear;
-              })
-              .reduce((s, t) => s + t.commission, 0);
+              .filter((t) => new Date(t.createdAt).getTime() >= startOfMonth)
+              .reduce((s, t) => s + (t.netProfit ?? t.commission ?? 0), 0);
 
             return (
               <div key={w.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-3">

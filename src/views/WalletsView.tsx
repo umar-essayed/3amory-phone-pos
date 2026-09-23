@@ -185,32 +185,65 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
 
     const currentWallet = wallets.find((w) => w.id === selectedWalletId) || wallets[0];
 
-    // Daily Limit verification for Outgoing Transfers (Cash Out / Instapay)
+    // Daily & Monthly Limit verification for Outgoing Transfers (Cash Out / Instapay)
     // Rule: Deposits from customer (Cash In) are unlimited and do not consume limit.
+    // Rule: Limits apply strictly to pure transfer principal amount (e.g. 1000 EGP), NOT fee/commission (e.g. 10 EGP).
     const isOutgoing = txType === 'cash_out_to_customer' || txType === 'instapay_transfer';
-    if (isOutgoing && currentWallet.dailyLimit && currentWallet.dailyLimit > 0) {
-      const todayStr = new Date().toDateString();
-      const currentTodayOut = allTransactions
-        .filter(
-          (t) =>
-            t.walletId === currentWallet.id &&
-            (t.type === 'cash_out_to_customer' || t.type === 'instapay_transfer') &&
-            new Date(t.createdAt).toDateString() === todayStr
-        )
-        .reduce((sum, t) => sum + t.amount, 0);
+    if (isOutgoing) {
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
 
-      if (currentTodayOut + numAmount > currentWallet.dailyLimit) {
-        const proceed = await showConfirm(
-          `تنبيه: هذه العملية ستتجاوز الحد اليومي للتحويلات الصادرة على هذا الخط!\n\n` +
-          `الحد اليومي المحدد: ${currentWallet.dailyLimit.toLocaleString()} ج\n` +
-          `المحول اليوم حتى الآن: ${currentTodayOut.toLocaleString()} ج\n` +
-          `المطلوب تحويله الآن: ${numAmount.toLocaleString()} ج\n` +
-          `الإجمالي سيكون: ${(currentTodayOut + numAmount).toLocaleString()} ج\n\n` +
-          `هل تريد المتابعة وتأكيد العملية؟`,
-          'تجاوز الليميت اليومي',
-          { confirmText: 'نعم، متابعة التحويل', cancelText: 'إلغاء', danger: true }
-        );
-        if (!proceed) return;
+      // 1. Daily Limit Check
+      if (currentWallet.dailyLimit && currentWallet.dailyLimit > 0) {
+        const currentTodayOut = allTransactions
+          .filter(
+            (t) =>
+              t.walletId === currentWallet.id &&
+              (t.type === 'cash_out_to_customer' || t.type === 'instapay_transfer') &&
+              new Date(t.createdAt).getTime() >= startOfToday
+          )
+          .reduce((sum, t) => sum + t.amount, 0);
+
+        if (currentTodayOut + numAmount > currentWallet.dailyLimit) {
+          const proceed = await showConfirm(
+            `تنبيه: هذه العملية ستتجاوز الحد اليومي للتحويلات الصادرة على هذا الخط!\n\n` +
+            `الحد اليومي المحدد: ${currentWallet.dailyLimit.toLocaleString()} ج\n` +
+            `أصل المحول اليوم حتى الآن: ${currentTodayOut.toLocaleString()} ج (صافي تحويل بدون عمولات)\n` +
+            `المطلوب تحويله الآن: ${numAmount.toLocaleString()} ج\n` +
+            `الإجمالي سيكون: ${(currentTodayOut + numAmount).toLocaleString()} ج\n\n` +
+            `هل تريد المتابعة وتأكيد العملية؟`,
+            'تجاوز الليميت اليومي',
+            { confirmText: 'نعم، متابعة التحويل', cancelText: 'إلغاء', danger: true }
+          );
+          if (!proceed) return;
+        }
+      }
+
+      // 2. Monthly Limit Check
+      if (currentWallet.monthlyLimit && currentWallet.monthlyLimit > 0) {
+        const currentMonthOut = allTransactions
+          .filter(
+            (t) =>
+              t.walletId === currentWallet.id &&
+              (t.type === 'cash_out_to_customer' || t.type === 'instapay_transfer') &&
+              new Date(t.createdAt).getTime() >= startOfMonth
+          )
+          .reduce((sum, t) => sum + t.amount, 0);
+
+        if (currentMonthOut + numAmount > currentWallet.monthlyLimit) {
+          const proceed = await showConfirm(
+            `تنبيه: هذه العملية ستتجاوز الحد الشهري للتحويلات الصادرة على هذا الخط!\n\n` +
+            `الحد الشهري المحدد: ${currentWallet.monthlyLimit.toLocaleString()} ج\n` +
+            `أصل المحول خلال الشهر: ${currentMonthOut.toLocaleString()} ج (صافي تحويل بدون عمولات)\n` +
+            `المطلوب تحويله الآن: ${numAmount.toLocaleString()} ج\n` +
+            `الإجمالي سيكون: ${(currentMonthOut + numAmount).toLocaleString()} ج\n\n` +
+            `هل تريد المتابعة وتأكيد العملية؟`,
+            'تجاوز الليميت الشهري',
+            { confirmText: 'نعم، متابعة التحويل', cancelText: 'إلغاء', danger: true }
+          );
+          if (!proceed) return;
+        }
       }
     }
 
@@ -636,40 +669,33 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
           {wallets.map((w) => {
             const isSelected = selectedWalletId === w.id;
             const now = new Date();
-            const todayStr = now.toDateString();
-            const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-            const curMonth = now.getMonth();
-            const curYear = now.getFullYear();
+            const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+            const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).getTime();
 
-            // Outgoing transfers (cash out / instapay) - only outgoing counts towards limit
+            // Outgoing transfers (cash out / instapay) - strictly counts pure transfer principal (t.amount), NOT fees/profits
             const walletOutgoing = allTransactions.filter(
               (t) => t.walletId === w.id && (t.type === 'cash_out_to_customer' || t.type === 'instapay_transfer')
             );
             const todayOut = walletOutgoing
-              .filter((t) => new Date(t.createdAt).toDateString() === todayStr)
+              .filter((t) => new Date(t.createdAt).getTime() >= startOfToday)
               .reduce((s, t) => s + t.amount, 0);
 
             const monthOut = walletOutgoing
-              .filter((t) => {
-                const d = new Date(t.createdAt);
-                return d.getMonth() === curMonth && d.getFullYear() === curYear;
-              })
+              .filter((t) => new Date(t.createdAt).getTime() >= startOfMonth)
               .reduce((s, t) => s + t.amount, 0);
 
             // Profits from commissions
             const walletTxList = allTransactions.filter((t) => t.walletId === w.id);
             const profitToday = walletTxList
-              .filter((t) => new Date(t.createdAt).toDateString() === todayStr)
-              .reduce((s, t) => s + t.commission, 0);
+              .filter((t) => new Date(t.createdAt).getTime() >= startOfToday)
+              .reduce((s, t) => s + (t.netProfit ?? t.commission ?? 0), 0);
             const profitWeek = walletTxList
-              .filter((t) => new Date(t.createdAt) >= oneWeekAgo)
-              .reduce((s, t) => s + t.commission, 0);
+              .filter((t) => new Date(t.createdAt).getTime() >= oneWeekAgo)
+              .reduce((s, t) => s + (t.netProfit ?? t.commission ?? 0), 0);
             const profitMonth = walletTxList
-              .filter((t) => {
-                const d = new Date(t.createdAt);
-                return d.getMonth() === curMonth && d.getFullYear() === curYear;
-              })
-              .reduce((s, t) => s + t.commission, 0);
+              .filter((t) => new Date(t.createdAt).getTime() >= startOfMonth)
+              .reduce((s, t) => s + (t.netProfit ?? t.commission ?? 0), 0);
 
             return (
               <div
@@ -705,7 +731,7 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
                     {w.dailyLimit && w.dailyLimit > 0 ? (
                       <div>
                         <div className="flex justify-between font-bold text-slate-600 mb-0.5">
-                          <span>ليميت اليوم:</span>
+                          <span>ليميت التحويل اليومي:</span>
                           <span className="font-mono text-[9px]">
                             {todayOut.toLocaleString()} / {w.dailyLimit.toLocaleString()} ج ({Math.min(100, Math.round((todayOut / w.dailyLimit) * 100))}%)
                           </span>
@@ -720,13 +746,13 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
                         </div>
                       </div>
                     ) : (
-                      <div className="text-[9px] text-slate-400">الليميت اليومي: مفتوح</div>
+                      <div className="text-[9px] text-slate-400">الليميت اليومي: مفتوح (غير محدد)</div>
                     )}
 
                     {w.monthlyLimit && w.monthlyLimit > 0 && (
                       <div className="pt-0.5">
                         <div className="flex justify-between font-bold text-slate-600 mb-0.5">
-                          <span>ليميت الشهر:</span>
+                          <span>ليميت التحويل الشهري:</span>
                           <span className="font-mono text-[9px]">
                             {monthOut.toLocaleString()} / {w.monthlyLimit.toLocaleString()} ج ({Math.min(100, Math.round((monthOut / w.monthlyLimit) * 100))}%)
                           </span>
@@ -746,16 +772,16 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
                   {/* Net Profits Badges */}
                   <div className="grid grid-cols-3 gap-1 mt-2 text-center">
                     <div className="bg-emerald-50 p-1 rounded-lg border border-emerald-100">
-                      <span className="block text-[8px] text-emerald-800 font-bold">اليوم</span>
-                      <span className="text-[10px] font-mono font-black text-emerald-700">+{profitToday}</span>
+                      <span className="block text-[8px] text-emerald-800 font-bold">ربح اليوم</span>
+                      <span className="text-[10px] font-mono font-black text-emerald-700">+{profitToday.toLocaleString()}</span>
                     </div>
                     <div className="bg-blue-50 p-1 rounded-lg border border-blue-100">
-                      <span className="block text-[8px] text-blue-800 font-bold">أسبوع</span>
-                      <span className="text-[10px] font-mono font-black text-blue-700">+{profitWeek}</span>
+                      <span className="block text-[8px] text-blue-800 font-bold">ربح أسبوع</span>
+                      <span className="text-[10px] font-mono font-black text-blue-700">+{profitWeek.toLocaleString()}</span>
                     </div>
                     <div className="bg-purple-50 p-1 rounded-lg border border-purple-100">
-                      <span className="block text-[8px] text-purple-800 font-bold">شهر</span>
-                      <span className="text-[10px] font-mono font-black text-purple-700">+{profitMonth}</span>
+                      <span className="block text-[8px] text-purple-800 font-bold">ربح شهر</span>
+                      <span className="text-[10px] font-mono font-black text-purple-700">+{profitMonth.toLocaleString()}</span>
                     </div>
                   </div>
                 </div>

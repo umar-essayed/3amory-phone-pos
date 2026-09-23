@@ -257,6 +257,45 @@ export const AccountsView: React.FC = () => {
     }
 
     if (vipOpType === 'transfer') {
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+
+      const allWtx = await db.walletTransactions.where('walletId').equals(selectedWallet.id).toArray();
+      const outgoingTxs = allWtx.filter((t) => t.type === 'cash_out_to_customer' || t.type === 'instapay_transfer');
+
+      // 1. Daily Limit Check (strictly uses pure transfer principal numAmount)
+      if (selectedWallet.dailyLimit && selectedWallet.dailyLimit > 0) {
+        const todayOut = outgoingTxs
+          .filter((t) => new Date(t.createdAt).getTime() >= startOfToday)
+          .reduce((s, t) => s + t.amount, 0);
+
+        if (todayOut + numAmount > selectedWallet.dailyLimit) {
+          const proceed = await showConfirm(
+            `تنبيه: تحويل مبلغ ${numAmount.toLocaleString()} ${cur} سيتجاوز الحد اليومي المحدد للخط (${selectedWallet.dailyLimit.toLocaleString()} ${cur})!\nالمحول اليوم حتى الآن: ${todayOut.toLocaleString()} ${cur} (أصل التحويل بدون عمولات)\n\nهل تريد المتابعة وتأكيد العملية؟`,
+            'تجاوز الليميت اليومي',
+            { confirmText: 'متابعة التحويل', cancelText: 'إلغاء', danger: true }
+          );
+          if (!proceed) return;
+        }
+      }
+
+      // 2. Monthly Limit Check (strictly uses pure transfer principal numAmount)
+      if (selectedWallet.monthlyLimit && selectedWallet.monthlyLimit > 0) {
+        const monthOut = outgoingTxs
+          .filter((t) => new Date(t.createdAt).getTime() >= startOfMonth)
+          .reduce((s, t) => s + t.amount, 0);
+
+        if (monthOut + numAmount > selectedWallet.monthlyLimit) {
+          const proceed = await showConfirm(
+            `تنبيه: تحويل مبلغ ${numAmount.toLocaleString()} ${cur} سيتجاوز الحد الشهري المحدد للخط (${selectedWallet.monthlyLimit.toLocaleString()} ${cur})!\nالمحول خلال الشهر: ${monthOut.toLocaleString()} ${cur} (أصل التحويل بدون عمولات)\n\nهل تريد المتابعة وتأكيد العملية؟`,
+            'تجاوز الليميت الشهري',
+            { confirmText: 'متابعة التحويل', cancelText: 'إلغاء', danger: true }
+          );
+          if (!proceed) return;
+        }
+      }
+
       if (selectedWallet.balance < numAmount) {
         const proceed = await showConfirm(
           `رصيد المحفظة الحالي (${selectedWallet.balance.toLocaleString()} ${cur}) أقل من المبلغ المطلوب تحويله (${numAmount.toLocaleString()} ${cur}). هل تريد المتابعة على أية حال؟`,
