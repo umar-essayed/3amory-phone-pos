@@ -28,6 +28,7 @@ import {
   Database,
   ExternalLink,
   Play,
+  ShieldCheck,
 } from 'lucide-react';
 import { db, seedSampleData } from '../db';
 import { triggerPrint, kickCashDrawer } from '../services/printer';
@@ -38,6 +39,7 @@ import { syncService } from '../services/syncService';
 import { printerScanner, type DiscoveredPrinter } from '../services/printerScanner';
 import { useModal } from '../context/ModalContext';
 import { getStoreLogo, DEFAULT_LOGO } from '../constants/logo';
+import { UsersView } from './UsersView';
 import type { StoreSettings } from '../types';
 
 export const SettingsView: React.FC = () => {
@@ -50,7 +52,7 @@ export const SettingsView: React.FC = () => {
 
   const [formData, setFormData] = useState<StoreSettings | null>(null);
   const [savedSuccess, setSavedSuccess] = useState(false);
-  const [activeTab, setActiveTab] = useState<'store' | 'receipt' | 'commissions' | 'backup' | 'logs'>('store');
+  const [activeTab, setActiveTab] = useState<'store' | 'receipt' | 'commissions' | 'backup' | 'logs' | 'users'>('store');
   const [simAmount, setSimAmount] = useState<number>(1000);
   const [availablePrinters, setAvailablePrinters] = useState<DiscoveredPrinter[]>([]);
   const [scanningPrinters, setScanningPrinters] = useState(false);
@@ -368,6 +370,17 @@ export const SettingsView: React.FC = () => {
         >
           <FolderOpen className="h-4 w-4" />
           <span>سجلات النظام والتشغيل (Logs)</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('users')}
+          className={`flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-bold transition whitespace-nowrap cursor-pointer ${
+            activeTab === 'users'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <ShieldCheck className="h-4 w-4" />
+          <span>المستخدمون والصلاحيات والحسابات</span>
         </button>
       </div>
 
@@ -1343,6 +1356,13 @@ export const SettingsView: React.FC = () => {
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* TAB 6: USERS & PERMISSIONS */}
+        {activeTab === 'users' && (
+          <div className="pt-2">
+            <UsersView />
           </div>
         )}
       </div>

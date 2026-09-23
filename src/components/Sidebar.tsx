@@ -14,13 +14,16 @@ import {
   Barcode,
 } from 'lucide-react';
 import { db } from '../db';
+import type { User } from '../types';
+import { DEFAULT_CASHIER_PAGES } from '../types';
 
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
+  currentUser?: User | null;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, currentUser }) => {
   const pendingRepairs = useLiveQuery(() =>
     db.repairs.where('status').equals('repaired').count()
   ) || 0;
@@ -118,11 +121,24 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     },
   ];
 
+  const filteredNavItems = navItems.filter((item) => {
+    if (!currentUser) return true;
+    if (currentUser.role === 'owner' || currentUser.role === 'manager') return true;
+    if (currentUser.role === 'cashier') {
+      const allowed = currentUser.allowedPages || DEFAULT_CASHIER_PAGES;
+      return allowed.includes(item.id);
+    }
+    if (currentUser.role === 'technician') {
+      return ['maintenance', 'phones', 'accessories'].includes(item.id);
+    }
+    return true;
+  });
+
   return (
     <aside className="w-full lg:w-64 bg-white border-b lg:border-b-0 lg:border-l border-slate-200 flex flex-col justify-between shrink-0 no-print overflow-hidden">
       {/* Top Nav */}
       <div className="flex lg:flex-col gap-1 lg:gap-0.5 overflow-x-auto lg:overflow-visible p-2 lg:p-3 lg:pt-4">
-        {navItems.map((item) => {
+        {filteredNavItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
           return (

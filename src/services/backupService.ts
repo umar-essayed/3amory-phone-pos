@@ -21,6 +21,7 @@ export interface FullDatabaseBackup {
   expenses: any[];
   customers: any[];
   suppliers: any[];
+  debtTransactions?: any[];
 }
 
 export class BackupService {
@@ -40,6 +41,7 @@ export class BackupService {
     const expenses = await db.expenses.toArray();
     const customers = await db.customers.toArray();
     const suppliers = await db.suppliers.toArray();
+    const debtTransactions = await db.debtTransactions.toArray();
 
     return {
       exportDate: new Date().toISOString(),
@@ -57,6 +59,7 @@ export class BackupService {
       expenses,
       customers,
       suppliers,
+      debtTransactions,
     };
   }
 
@@ -185,6 +188,7 @@ export class BackupService {
           db.repairs,
           db.customers,
           db.suppliers,
+          db.debtTransactions,
           db.syncQueue,
         ],
         async () => {
@@ -197,6 +201,7 @@ export class BackupService {
           await db.repairs.clear();
           await db.customers.clear();
           await db.suppliers.clear();
+          await db.debtTransactions.clear();
           await db.syncQueue.clear();
         }
       );

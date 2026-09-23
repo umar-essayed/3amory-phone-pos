@@ -15,6 +15,7 @@ import type {
   Customer,
   Supplier,
   SyncQueueItem,
+  DebtTransaction,
 } from '../types';
 
 export class MobilePosDatabase extends Dexie {
@@ -31,6 +32,7 @@ export class MobilePosDatabase extends Dexie {
   customers!: Table<Customer, string>;
   suppliers!: Table<Supplier, string>;
   syncQueue!: Table<SyncQueueItem, string>;
+  debtTransactions!: Table<DebtTransaction, string>;
 
   constructor() {
     super('MobilePosDatabase');
@@ -49,6 +51,10 @@ export class MobilePosDatabase extends Dexie {
       customers: 'id, name, phone',
       suppliers: 'id, name, phone',
       syncQueue: 'id, collection, synced, timestamp',
+    });
+
+    this.version(2).stores({
+      debtTransactions: 'id, partyType, partyId, shiftId, type, createdAt',
     });
   }
 }
@@ -202,32 +208,7 @@ async function doInitializeDatabase() {
       ]);
     }
 
-    // Clean initial open shift if no open shift exists
-    const openShift = await db.shifts.where('status').equals('open').first();
-    if (!openShift) {
-      const allShifts = await db.shifts.count();
-      if (allShifts === 0) {
-        await db.shifts.put({
-          id: `shift_${Date.now()}`,
-          shiftNumber: 1,
-          cashierId: 'usr_admin',
-          cashierName: 'المدير العام (المالك)',
-          startTime: new Date().toISOString(),
-          status: 'open',
-          openingCash: 0,
-          openingWallets: {},
-          closingCashSystem: 0,
-          closingCashActual: 0,
-          cashDifference: 0,
-          totalSalesCash: 0,
-          totalWalletIn: 0,
-          totalWalletOut: 0,
-          totalCommissions: 0,
-          totalExpenses: 0,
-          notes: 'بداية الوردية الافتتاحية للمحل',
-        });
-      }
-    }
+    // Shifts are strictly opened manually by the user or cashier. No automatic shift is created.
 
     // Auto-heal any shifts that might have negative closingCashSystem
     await repairNegativeShifts();

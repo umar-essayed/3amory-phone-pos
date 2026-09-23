@@ -21,18 +21,26 @@ import {
   Receipt,
   RotateCcw,
   X,
+  Zap,
+  AlertTriangle,
 } from 'lucide-react';
 import { db } from '../db';
 import { triggerPrint } from '../services/printer';
 import { useModal } from '../context/ModalContext';
 import { ShiftInvoicesModal } from '../components/ShiftInvoicesModal';
-import type { InvoiceItem, SaleInvoice, StoreSettings, Phone, Accessory, ProductVariant } from '../types';
+import type { InvoiceItem, SaleInvoice, StoreSettings, Phone, Accessory, ProductVariant, Shift } from '../types';
 
-export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> = ({
+export const PosView: React.FC<{
+  activeShiftId: string;
+  cashierName: string;
+  onNavigateToShifts?: () => void;
+}> = ({
   activeShiftId,
   cashierName,
+  onNavigateToShifts,
 }) => {
   const { showAlert, showToast } = useModal();
+  const openShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
   const phones = useLiveQuery(() => db.phones.where('status').equals('available').toArray()) || [];
   const accessories = useLiveQuery(() => db.accessories.toArray()) || [];
   const settings = useLiveQuery(() => db.settings.get(1));
@@ -198,13 +206,19 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
       return;
     }
 
+    if (!openShift) {
+      showAlert('لا يمكن إتمام عملية البيع بدون وجود وردية عمل مفتوحة حالياً! يرجى التوجه لقسم الورديات وفتح وردية أولاً.', 'الوردية مغلقة', 'warning');
+      return;
+    }
+
+    const targetShiftId = openShift.id;
     const invoiceNum = `INV-${Date.now().toString().slice(-6)}`;
     const invoiceId = `inv_${Date.now()}`;
 
     const newInvoice: SaleInvoice = {
       id: invoiceId,
       invoiceNumber: invoiceNum,
-      shiftId: activeShiftId,
+      shiftId: targetShiftId,
       cashierName,
       customerName: customerName.trim() || undefined,
       customerPhone: customerPhone.trim() || undefined,
@@ -223,7 +237,7 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
     };
 
     // Execute atomic DB transaction
-    await db.transaction('rw', [db.invoices, db.phones, db.accessories, db.shifts, db.wallets], async () => {
+    await db.transaction('rw', [db.invoices, db.phones, db.accessories, db.shifts, db.wallets, db.customers, db.debtTransactions], async () => {
       // 1. Add Invoice
       await db.invoices.add(newInvoice);
 
@@ -254,17 +268,24 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
         }
       }
 
-      // 3. Update Shift drawer or wallet
-      const shift = await db.shifts.get(activeShiftId);
+      // 3. Update Shift
+      const shift = await db.shifts.get(targetShiftId);
       if (shift) {
+        const shiftUpdates: Partial<Shift> = {
+          totalSalesCount: (shift.totalSalesCount || 0) + 1,
+        };
         if (paymentMethod === 'cash') {
-          await db.shifts.update(activeShiftId, {
-            closingCashSystem: shift.closingCashSystem + grandTotal,
-            totalSalesCash: shift.totalSalesCash + grandTotal,
-          });
+          shiftUpdates.closingCashSystem = shift.closingCashSystem + grandTotal;
+          shiftUpdates.totalSalesCash = (shift.totalSalesCash || 0) + grandTotal;
+        } else if (paymentMethod === 'wallet' || paymentMethod === 'instapay') {
+          shiftUpdates.totalSalesWallet = (shift.totalSalesWallet || 0) + grandTotal;
+        } else if (paymentMethod === 'debt') {
+          shiftUpdates.totalSalesDebt = (shift.totalSalesDebt || 0) + grandTotal;
         }
+        await db.shifts.update(targetShiftId, shiftUpdates);
       }
 
+      // 4. Update Wallet if applicable
       if ((paymentMethod === 'wallet' || paymentMethod === 'instapay') && selectedWalletId) {
         const targetWallet = await db.wallets.get(selectedWalletId);
         if (targetWallet) {
@@ -272,6 +293,45 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
             balance: targetWallet.balance + grandTotal,
           });
         }
+      }
+
+      // 5. Customer Debt (آجل) ledger recording
+      if (paymentMethod === 'debt') {
+        let cust = null;
+        if (customerPhone.trim()) {
+          cust = await db.customers.where('phone').equals(customerPhone.trim()).first();
+        }
+        const custName = customerName.trim() || 'عميل آجل بدون اسم';
+        const custId = cust?.id || `cust_${Date.now()}`;
+        if (!cust) {
+          await db.customers.add({
+            id: custId,
+            name: custName,
+            phone: customerPhone.trim(),
+            totalDebt: grandTotal,
+            totalPaid: 0,
+            createdAt: new Date().toISOString(),
+          });
+        } else {
+          await db.customers.update(cust.id, {
+            totalDebt: (cust.totalDebt || 0) + grandTotal,
+          });
+        }
+
+        await db.debtTransactions.add({
+          id: `dtx_${Date.now()}`,
+          partyType: 'customer',
+          partyId: cust?.id || custId,
+          partyName: custName,
+          shiftId: targetShiftId,
+          type: 'debt_increase',
+          amount: grandTotal,
+          balanceBefore: cust?.totalDebt || 0,
+          balanceAfter: (cust?.totalDebt || 0) + grandTotal,
+          notes: `فاتورة بيع آجل رقم #${invoiceNum}`,
+          recordedBy: cashierName,
+          createdAt: new Date().toISOString(),
+        });
       }
     });
 
@@ -289,13 +349,108 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
       });
     }
 
-    // Reset
-    showToast('تم إتمام عملية البيع وتأكيد الفاتورة بنجاح!');
+    showToast(`تمت عملية البيع بنجاح! رقم الفاتورة #${invoiceNum}`, 'success');
     setCartItems([]);
+    setDiscount('0');
     setCustomerName('');
     setCustomerPhone('');
+    searchInputRef.current?.focus();
+  };
+
+  // Quick Cash Sale Execution (⚡ إتمام سريع كاش فوري)
+  const handleQuickCashSale = async () => {
+    if (cartItems.length === 0) {
+      showAlert('سلة المبيعات فارغة! يرجى إضافة هواتف أو إكسسوارات أولاً.', 'تنبيه', 'warning');
+      return;
+    }
+    if (!openShift) {
+      showAlert('لا يمكن إتمام البيع بدون وجود وردية مفتوحة حالياً. يرجى فتح وردية عمل أولاً.', 'الوردية مغلقة', 'warning');
+      return;
+    }
+
+    const targetShiftId = openShift.id;
+    const invoiceNum = `INV-${Date.now().toString().slice(-6)}`;
+    const invoiceId = `inv_${Date.now()}`;
+    const totalAmount = subtotal;
+    const quickProfit = Math.max(0, totalAmount - totalCost);
+
+    const quickInvoice: SaleInvoice = {
+      id: invoiceId,
+      invoiceNumber: invoiceNum,
+      shiftId: targetShiftId,
+      cashierName,
+      customerName: customerName.trim() || undefined,
+      customerPhone: customerPhone.trim() || undefined,
+      items: cartItems,
+      subtotal,
+      discount: 0,
+      tax: 0,
+      total: totalAmount,
+      paidAmount: totalAmount,
+      remainingAmount: 0,
+      paymentMethod: 'cash',
+      totalProfit: quickProfit,
+      status: 'completed',
+      createdAt: new Date().toISOString(),
+    };
+
+    await db.transaction('rw', [db.invoices, db.phones, db.accessories, db.shifts], async () => {
+      await db.invoices.add(quickInvoice);
+
+      for (const item of cartItems) {
+        if (item.type === 'phone') {
+          await db.phones.update(item.itemId, {
+            status: 'sold',
+            soldAt: new Date().toISOString(),
+            soldInvoiceId: invoiceId,
+          });
+        } else if (item.type === 'accessory') {
+          const acc = await db.accessories.get(item.itemId);
+          if (acc) {
+            let updatedVariants = acc.variants;
+            if (item.variantId && updatedVariants) {
+              updatedVariants = updatedVariants.map((v) =>
+                v.id === item.variantId
+                  ? { ...v, stockQuantity: Math.max(0, v.stockQuantity - item.quantity) }
+                  : v
+              );
+            }
+            await db.accessories.update(item.itemId, {
+              stockQuantity: Math.max(0, acc.stockQuantity - item.quantity),
+              variants: updatedVariants,
+            });
+          }
+        }
+      }
+
+      const shift = await db.shifts.get(targetShiftId);
+      if (shift) {
+        await db.shifts.update(targetShiftId, {
+          closingCashSystem: shift.closingCashSystem + totalAmount,
+          totalSalesCash: (shift.totalSalesCash || 0) + totalAmount,
+          totalSalesCount: (shift.totalSalesCount || 0) + 1,
+        });
+      }
+    });
+
+    try {
+      confetti({ particleCount: 70, spread: 50, origin: { y: 0.7 } });
+    } catch {}
+
+    if (settings && settings.autoPrintReceipt) {
+      triggerPrint({
+        type: 'sale_receipt',
+        invoice: quickInvoice,
+        settings,
+      });
+    }
+
+    showToast(`⚡ تم إتمام البيع السريع (كاش فوري) بقيمة ${totalAmount.toLocaleString()} ج.م بنجاح!`, 'success');
+    setCartItems([]);
     setDiscount('0');
-    setPaymentMethod('cash');
+    setCustomerName('');
+    setCustomerPhone('');
+    searchInputRef.current?.focus();
   };
 
   // Hold Order
@@ -324,6 +479,32 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pb-12">
+      {/* Warning: No Active Shift Banner */}
+      {!openShift && (
+        <div className="lg:col-span-12 bg-amber-500/10 border-2 border-amber-500/30 p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 text-amber-950">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-amber-500 text-white shadow-xs">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+            <div>
+              <h4 className="font-black text-sm">تنبيه: لا توجد وردية مفتوحة حالياً!</h4>
+              <p className="text-xs text-amber-800">
+                يجب فتح وردية عمل جديدة وتحديد عهدة الدرج لبدء تسجيل المبيعات النقدية والتحويلات.
+              </p>
+            </div>
+          </div>
+          {onNavigateToShifts && (
+            <button
+              type="button"
+              onClick={onNavigateToShifts}
+              className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow transition cursor-pointer shrink-0"
+            >
+              الانتقال لفتح وردية عمل
+            </button>
+          )}
+        </div>
+      )}
+
       {/* LEFT / CENTER: Products Catalog & Quick Pick (7 cols) */}
       <div className="lg:col-span-7 space-y-4">
         {/* Search Bar with Barcode Scanner support */}
@@ -338,9 +519,22 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="امسح بالباركود سكانر أو ابحث باسم الجهاز، الـ IMEI، أو الإكسسوار..."
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pr-10 pl-4 text-xs font-semibold focus:border-blue-600 focus:bg-white focus:outline-none"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pr-10 pl-10 text-xs font-semibold focus:border-blue-600 focus:bg-white focus:outline-none"
             />
             <Search className="absolute right-3.5 top-3.5 h-4 w-4 text-slate-400" />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  searchInputRef.current?.focus();
+                }}
+                className="absolute left-3 top-3 p-1 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-700 transition cursor-pointer"
+                title="مسح شريط البحث"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
 
           <button
@@ -687,15 +881,29 @@ export const PosView: React.FC<{ activeShiftId: string; cashierName: string }> =
             </div>
           )}
 
-          {/* Checkout Button */}
-          <button
-            type="button"
-            onClick={handleCompleteSale}
-            className="w-full rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white font-black text-base py-4 shadow-lg transition active:scale-[0.99] cursor-pointer flex items-center justify-center gap-2"
-          >
-            <CheckCircle2 className="h-5 w-5" />
-            <span>إتمام البيع وطباعة الفاتورة الحرارية</span>
-          </button>
+          {/* Checkout Buttons */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+            <button
+              type="button"
+              onClick={handleQuickCashSale}
+              disabled={cartItems.length === 0}
+              className="w-full rounded-2xl bg-gradient-to-r from-amber-500 via-amber-600 to-orange-600 hover:from-amber-600 hover:to-orange-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black text-sm py-3.5 shadow-md hover:shadow-lg transition active:scale-[0.99] cursor-pointer flex items-center justify-center gap-2"
+              title="إتمام فوري للبيع نقداً (كاش) بدون خصم أو خطوات إضافية"
+            >
+              <Zap className="h-5 w-5 text-amber-200 fill-amber-200" />
+              <span>⚡ إتمام سريع (كاش فوري)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCompleteSale}
+              disabled={cartItems.length === 0}
+              className="w-full rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black text-sm py-3.5 shadow-md hover:shadow-lg transition active:scale-[0.99] cursor-pointer flex items-center justify-center gap-2"
+            >
+              <CheckCircle2 className="h-5 w-5" />
+              <span>إتمام البيع والطباعة</span>
+            </button>
+          </div>
         </div>
       </div>
 

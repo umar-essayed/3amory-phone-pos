@@ -1,7 +1,7 @@
 {
-  "appId": "com.amoryphone.pos",
-  "productName": "3amory phone POS",
-  "copyright": "Copyright © 2026 3amory phone",
+  "appId": "com.elghandourphone.pos",
+  "productName": "El Ghandour Phone POS",
+  "copyright": "Copyright © 2026 El Ghandour Phone",
   "directories": {
     "output": "release"
   },
@@ -16,10 +16,6 @@
       {
         "target": "nsis",
         "arch": ["x64"]
-      },
-      {
-        "target": "portable",
-        "arch": ["x64"]
       }
     ],
     "icon": "logo-removebg-preview.png"
@@ -29,16 +25,6 @@
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "shortcutName": "3amory phone POS"
-  },
-  "linux": {
-    "target": [
-      {
-        "target": "AppImage",
-        "arch": ["x64"]
-      }
-    ],
-    "category": "Office",
-    "icon": "logo-removebg-preview.png"
+    "shortcutName": "El Ghandour Phone POS"
   }
 }

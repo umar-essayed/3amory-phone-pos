@@ -21,6 +21,7 @@ import {
 import { db } from '../db';
 import { useModal } from '../context/ModalContext';
 import type { User } from '../types';
+import { ALL_SYSTEM_PAGES, DEFAULT_CASHIER_PAGES } from '../types';
 
 type UserRole = 'owner' | 'manager' | 'cashier' | 'technician';
 
@@ -44,6 +45,7 @@ const EMPTY_FORM = {
   pin: '',
   confirmPin: '',
   role: 'cashier' as UserRole,
+  allowedPages: [...DEFAULT_CASHIER_PAGES],
 };
 
 export const UsersView: React.FC = () => {
@@ -86,6 +88,7 @@ export const UsersView: React.FC = () => {
       displayName: form.displayName.trim(),
       pin: form.pin,
       role: form.role,
+      allowedPages: form.role === 'cashier' ? (form.allowedPages.length > 0 ? form.allowedPages : DEFAULT_CASHIER_PAGES) : (form.role === 'technician' ? ['maintenance', 'phones', 'accessories'] : ALL_SYSTEM_PAGES.map((p) => p.id)),
       isActive: true,
       createdAt: new Date().toISOString(),
     };
@@ -103,6 +106,7 @@ export const UsersView: React.FC = () => {
       displayName: editingUser.displayName,
       role: editingUser.role,
       isActive: editingUser.isActive,
+      allowedPages: editingUser.role === 'cashier' ? (editingUser.allowedPages || DEFAULT_CASHIER_PAGES) : (editingUser.role === 'technician' ? ['maintenance', 'phones', 'accessories'] : ALL_SYSTEM_PAGES.map((p) => p.id)),
       ...(editingUser.pin ? { pin: editingUser.pin } : {}),
     });
     setEditingUser(null);
@@ -203,6 +207,11 @@ export const UsersView: React.FC = () => {
                         <roleInfo.Icon className="h-3 w-3" />
                         {roleInfo.label}
                       </span>
+                      {user.role === 'cashier' && user.allowedPages ? (
+                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200">
+                          {user.allowedPages.length} صفحات مسموحة
+                        </span>
+                      ) : null}
                       {perms.slice(0, 3).map((p) => (
                         <span key={p} className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[10px] font-semibold">
                           {p}
@@ -336,15 +345,74 @@ export const UsersView: React.FC = () => {
                     </button>
                   ))}
                 </div>
-                {/* Permissions preview */}
-                <div className="mt-2 p-3 bg-slate-50 rounded-xl">
-                  <p className="text-[10px] text-slate-500 font-bold mb-1">الصلاحيات:</p>
-                  <div className="flex flex-wrap gap-1">
-                    {ROLE_PERMISSIONS[form.role].map((p) => (
-                      <span key={p} className="px-2 py-0.5 bg-white border border-slate-200 text-slate-600 rounded-full text-[10px] font-semibold">{p}</span>
-                    ))}
+                {/* Permissions selector for cashier or preview for others */}
+                {form.role === 'cashier' ? (
+                  <div className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] text-slate-700 font-bold flex items-center gap-1">
+                        <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+                        صلاحيات الصفحات المسموحة للكاشير:
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setForm((p) => ({ ...p, allowedPages: ALL_SYSTEM_PAGES.map((pg) => pg.id) }))}
+                          className="text-[10px] font-bold text-blue-600 hover:underline cursor-pointer"
+                        >
+                          تحديد الكل
+                        </button>
+                        <span className="text-slate-300">|</span>
+                        <button
+                          type="button"
+                          onClick={() => setForm((p) => ({ ...p, allowedPages: [...DEFAULT_CASHIER_PAGES] }))}
+                          className="text-[10px] font-bold text-slate-500 hover:underline cursor-pointer"
+                        >
+                          الافتراضي
+                        </button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5 pt-1">
+                      {ALL_SYSTEM_PAGES.map((page) => {
+                        const isChecked = form.allowedPages.includes(page.id);
+                        return (
+                          <label
+                            key={page.id}
+                            className={`flex items-center gap-2 p-1.5 rounded-lg border text-[11px] cursor-pointer transition select-none ${
+                              isChecked
+                                ? 'border-emerald-400 bg-emerald-50 text-emerald-900 font-bold'
+                                : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                setForm((p) => ({
+                                  ...p,
+                                  allowedPages: checked
+                                    ? [...p.allowedPages, page.id]
+                                    : p.allowedPages.filter((id) => id !== page.id),
+                                }));
+                              }}
+                              className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5"
+                            />
+                            <span>{page.label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="mt-2 p-3 bg-slate-50 rounded-xl">
+                    <p className="text-[10px] text-slate-500 font-bold mb-1">الصلاحيات:</p>
+                    <div className="flex flex-wrap gap-1">
+                      {ROLE_PERMISSIONS[form.role].map((p) => (
+                        <span key={p} className="px-2 py-0.5 bg-white border border-slate-200 text-slate-600 rounded-full text-[10px] font-semibold">{p}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -451,6 +519,65 @@ export const UsersView: React.FC = () => {
                     </button>
                   ))}
                 </div>
+
+                {/* Permissions selector for cashier in Edit Modal */}
+                {editingUser.role === 'cashier' && (
+                  <div className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] text-slate-700 font-bold flex items-center gap-1">
+                        <ShieldCheck className="h-3.5 w-3.5 text-indigo-600" />
+                        صلاحيات الصفحات المسموحة للكاشير:
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingUser((p) => p ? { ...p, allowedPages: ALL_SYSTEM_PAGES.map((pg) => pg.id) } : null)}
+                          className="text-[10px] font-bold text-blue-600 hover:underline cursor-pointer"
+                        >
+                          تحديد الكل
+                        </button>
+                        <span className="text-slate-300">|</span>
+                        <button
+                          type="button"
+                          onClick={() => setEditingUser((p) => p ? { ...p, allowedPages: [...DEFAULT_CASHIER_PAGES] } : null)}
+                          className="text-[10px] font-bold text-slate-500 hover:underline cursor-pointer"
+                        >
+                          الافتراضي
+                        </button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5 pt-1">
+                      {ALL_SYSTEM_PAGES.map((page) => {
+                        const currentAllowed = editingUser.allowedPages || DEFAULT_CASHIER_PAGES;
+                        const isChecked = currentAllowed.includes(page.id);
+                        return (
+                          <label
+                            key={page.id}
+                            className={`flex items-center gap-2 p-1.5 rounded-lg border text-[11px] cursor-pointer transition select-none ${
+                              isChecked
+                                ? 'border-indigo-400 bg-indigo-50 text-indigo-900 font-bold'
+                                : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                const updated = checked
+                                  ? [...currentAllowed, page.id]
+                                  : currentAllowed.filter((id) => id !== page.id);
+                                setEditingUser((p) => p ? { ...p, allowedPages: updated } : null);
+                              }}
+                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5"
+                            />
+                            <span>{page.label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div>

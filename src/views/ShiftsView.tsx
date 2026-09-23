@@ -18,26 +18,32 @@ import { db } from '../db';
 import { triggerPrint } from '../services/printer';
 import { useModal } from '../context/ModalContext';
 import { ShiftInvoicesModal } from '../components/ShiftInvoicesModal';
-import type { Shift, Expense, StoreSettings } from '../types';
+import type { Shift, Expense, StoreSettings, User } from '../types';
 
-export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }> = ({
+export const ShiftsView: React.FC<{
+  activeShiftId: string;
+  cashierName: string;
+  currentUser?: User | null;
+}> = ({
   activeShiftId,
   cashierName,
+  currentUser,
 }) => {
-  const { showAlert, showPrompt, showToast } = useModal();
-  const activeShift = useLiveQuery(() => db.shifts.get(activeShiftId));
+  const { showAlert, showToast } = useModal();
+  const activeShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
   const shiftsHistory =
-    useLiveQuery(() => db.shifts.orderBy('startTime').reverse().limit(30).toArray()) || [];
+    useLiveQuery(() => db.shifts.orderBy('startTime').reverse().limit(50).toArray()) || [];
+  const currentShiftId = activeShift?.id || (activeShiftId !== 'shift_default' ? activeShiftId : '');
   const expenses =
-    useLiveQuery(() => db.expenses.where('shiftId').equals(activeShiftId).toArray()) || [];
+    useLiveQuery(() => (currentShiftId ? db.expenses.where('shiftId').equals(currentShiftId).toArray() : [])) || [];
   const settings = useLiveQuery(() => db.settings.get(1));
 
   // Active shift invoices count
   const activeShiftInvoicesCount =
-    useLiveQuery(() => db.invoices.where('shiftId').equals(activeShiftId).count()) || 0;
+    useLiveQuery(() => (currentShiftId ? db.invoices.where('shiftId').equals(currentShiftId).count() : 0)) || 0;
   // Active shift wallet transactions count
   const activeShiftWalletCount =
-    useLiveQuery(() => db.walletTransactions.where('shiftId').equals(activeShiftId).count()) || 0;
+    useLiveQuery(() => (currentShiftId ? db.walletTransactions.where('shiftId').equals(currentShiftId).count() : 0)) || 0;
 
   // Auto-heal active shift if drawer balance is negative
   React.useEffect(() => {
@@ -65,6 +71,18 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [actualCashInput, setActualCashInput] = useState('');
   const [closingNotes, setClosingNotes] = useState('');
+  const [fawrySalesTotalInput, setFawrySalesTotalInput] = useState('');
+  const [fawryNetProfitInput, setFawryNetProfitInput] = useState('');
+
+  // Open shift modal state
+  const [showOpenModal, setShowOpenModal] = useState(false);
+  const [openCashInput, setOpenCashInput] = useState('0');
+  const [openShiftNotes, setOpenShiftNotes] = useState('');
+
+  // Last closed shift and its balance
+  const lastClosedShift = shiftsHistory.find((s) => s.status === 'closed');
+  const lastClosingBalance = lastClosedShift ? lastClosedShift.closingCashActual : 0;
+  const isCashier = currentUser?.role === 'cashier';
 
   // Add Expense modal state
   const [showExpenseModal, setShowExpenseModal] = useState(false);
@@ -75,6 +93,10 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
   // Handle Add Expense
   const handleAddExpense = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!currentShiftId) {
+      showAlert('يرجى فتح وردية أولاً لتسجيل المصروفات.', 'لا توجد وردية', 'warning');
+      return;
+    }
     const amountNum = parseFloat(expenseAmount);
     if (!expenseTitle || !amountNum || amountNum <= 0) {
       showAlert('يرجى كتابة بيان المصروف والمبلغ بشكل صحيح.', 'بيانات ناقصة', 'warning');
@@ -86,16 +108,16 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
       title: expenseTitle.trim(),
       amount: amountNum,
       category: expenseCategory,
-      shiftId: activeShiftId,
+      shiftId: currentShiftId,
       recordedBy: cashierName,
       createdAt: new Date().toISOString(),
     };
 
     await db.transaction('rw', [db.expenses, db.shifts], async () => {
       await db.expenses.add(newExpense);
-      const shift = await db.shifts.get(activeShiftId);
+      const shift = await db.shifts.get(currentShiftId);
       if (shift) {
-        await db.shifts.update(activeShiftId, {
+        await db.shifts.update(currentShiftId, {
           closingCashSystem: shift.closingCashSystem - amountNum,
           totalExpenses: shift.totalExpenses + amountNum,
         });
@@ -105,6 +127,7 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
     setShowExpenseModal(false);
     setExpenseTitle('');
     setExpenseAmount('');
+    showToast('تم تسجيل المصروف النثري وخصمه من الدرج بنجاح');
   };
 
   // Handle Close Shift
@@ -112,53 +135,115 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
     e.preventDefault();
     if (!activeShift) return;
 
+    const shiftToClose = activeShift;
     const actual = parseFloat(actualCashInput) || 0;
-    const diff = actual - activeShift.closingCashSystem;
+    const fawrySales = parseFloat(fawrySalesTotalInput) || 0;
+    const fawryProfit = parseFloat(fawryNetProfitInput) || 0;
 
-    await db.shifts.update(activeShiftId, {
-      status: 'closed',
-      endTime: new Date().toISOString(),
-      closingCashActual: actual,
-      cashDifference: diff,
-      notes: closingNotes.trim() || undefined,
-    });
-
-    if (settings) {
-      triggerPrint({
-        type: 'shift_report',
-        shift: {
-          ...activeShift,
-          status: 'closed',
-          endTime: new Date().toISOString(),
-          closingCashActual: actual,
-          cashDifference: diff,
-        },
-        settings,
-      });
-    }
-
+    // Immediately close modal to avoid any race condition
     setShowCloseModal(false);
-    showToast('تم تقفيل الوردية وجرد الدرج بنجاح!');
+
+    try {
+      // Calculate breakdown of shift invoices
+      const shiftInvoices = await db.invoices.where('shiftId').equals(shiftToClose.id).toArray();
+      const cashSales = shiftInvoices
+        .filter((inv) => inv.paymentMethod === 'cash' && inv.status !== 'canceled')
+        .reduce((sum, inv) => sum + inv.total, 0);
+      const walletSales = shiftInvoices
+        .filter((inv) => (inv.paymentMethod === 'wallet' || inv.paymentMethod === 'instapay') && inv.status !== 'canceled')
+        .reduce((sum, inv) => sum + inv.total, 0);
+      const debtSales = shiftInvoices
+        .filter((inv) => inv.paymentMethod === 'debt' && inv.status !== 'canceled')
+        .reduce((sum, inv) => sum + inv.total, 0);
+      const totalSalesCount = shiftInvoices.filter((inv) => inv.status !== 'canceled').length;
+
+      // If Fawry profit entered, record transaction & add to commissions and drawer
+      if (fawryProfit > 0) {
+        await db.walletTransactions.add({
+          id: `wtx_fawry_${Date.now()}`,
+          walletId: 'fawry_system',
+          walletName: 'مكن فوري / دفع إلكتروني',
+          type: 'cash_in_from_customer',
+          amount: fawrySales || fawryProfit,
+          networkFee: 0,
+          commission: fawryProfit,
+          netProfit: fawryProfit,
+          shiftId: shiftToClose.id,
+          cashierName,
+          notes: 'دخل / أرباح مكن فوري وكروت شحن',
+          createdAt: new Date().toISOString(),
+        });
+      }
+
+      const updatedCommissions = (shiftToClose.totalCommissions || 0) + fawryProfit;
+      const updatedSystemCash = shiftToClose.closingCashSystem + fawryProfit;
+      const diff = actual - updatedSystemCash;
+      const closedTime = new Date().toISOString();
+
+      await db.shifts.update(shiftToClose.id, {
+        status: 'closed',
+        endTime: closedTime,
+        closedAt: closedTime,
+        closingCashActual: actual,
+        closingCashSystem: updatedSystemCash,
+        cashDifference: diff,
+        totalSalesCash: cashSales,
+        totalSalesWallet: walletSales,
+        totalSalesDebt: debtSales,
+        totalSalesCount,
+        totalCommissions: updatedCommissions,
+        fawrySalesTotal: fawrySales,
+        fawryNetProfit: fawryProfit,
+        notes: closingNotes.trim() || undefined,
+      });
+
+      if (settings) {
+        triggerPrint({
+          type: 'shift_report',
+          shift: {
+            ...shiftToClose,
+            status: 'closed',
+            endTime: closedTime,
+            closingCashActual: actual,
+            closingCashSystem: updatedSystemCash,
+            cashDifference: diff,
+            totalSalesCash: cashSales,
+            totalSalesWallet: walletSales,
+            totalSalesDebt: debtSales,
+            totalSalesCount,
+            totalCommissions: updatedCommissions,
+            fawrySalesTotal: fawrySales,
+            fawryNetProfit: fawryProfit,
+          },
+          settings,
+        });
+      }
+
+      showToast('تم تقفيل الوردية وجرد الدرج بنجاح!');
+    } catch (err: any) {
+      console.error('Error closing shift:', err);
+      showAlert(`حدث خطأ أثناء تقفيل الوردية: ${err?.message || err}`, 'خطأ في التقفيل', 'error');
+    }
   };
 
-  // Start New Shift
-  const handleStartNewShift = async () => {
-    const openingCash = await showPrompt(
-      'أدخل رصيد الكاش الافتتاحي في الدرج لبدء الوردية الجديدة (ج.م):',
-      '0',
-      'بدء وردية جديدة',
-      '0'
-    );
-    if (openingCash === null) return;
+  // Open New Shift Dialog
+  const openNewShiftDialog = () => {
+    setOpenCashInput(lastClosingBalance.toString());
+    setOpenShiftNotes('');
+    setShowOpenModal(true);
+  };
 
-    const numOpening = parseFloat(openingCash) || 0;
+  // Confirm Start Shift
+  const handleConfirmStartShift = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const numOpening = parseFloat(openCashInput) || 0;
     const newShiftNum = (shiftsHistory[0]?.shiftNumber || 0) + 1;
     const newShiftId = `shift_${Date.now()}`;
 
     await db.shifts.add({
       id: newShiftId,
       shiftNumber: newShiftNum,
-      cashierId: 'usr_cashier',
+      cashierId: currentUser?.id || 'usr_cashier',
       cashierName,
       startTime: new Date().toISOString(),
       status: 'open',
@@ -168,14 +253,18 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
       closingCashActual: 0,
       cashDifference: 0,
       totalSalesCash: 0,
+      totalSalesWallet: 0,
+      totalSalesDebt: 0,
+      totalSalesCount: 0,
       totalWalletIn: 0,
       totalWalletOut: 0,
       totalCommissions: 0,
       totalExpenses: 0,
-      notes: 'وردية جديدة',
+      notes: openShiftNotes.trim() || 'وردية جديدة',
     });
 
-    window.location.reload();
+    setShowOpenModal(false);
+    showToast(`تم فتح الوردية #${newShiftNum} بنجاح!`);
   };
 
   return (
@@ -290,7 +379,7 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
             </div>
           </div>
           <button
-            onClick={handleStartNewShift}
+            onClick={openNewShiftDialog}
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-5 py-3 rounded-xl shadow transition cursor-pointer"
           >
             <Plus className="h-4 w-4" />
@@ -499,6 +588,35 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
                 </div>
               )}
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-purple-50/60 p-3 rounded-xl border border-purple-200/80">
+                <div>
+                  <label className="block text-xs font-bold text-purple-950 mb-1">
+                    إجمالي مبيعات مكن فوري / الكروت (اختياري)
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={fawrySalesTotalInput}
+                    onChange={(e) => setFawrySalesTotalInput(e.target.value)}
+                    placeholder="0"
+                    className="w-full rounded-xl border border-purple-200 bg-white p-2.5 text-sm font-mono text-slate-900 focus:border-purple-600 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-purple-950 mb-1">
+                    صافي ربح فوري / الكروت (اختياري - يضاف للدرج)
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={fawryNetProfitInput}
+                    onChange={(e) => setFawryNetProfitInput(e.target.value)}
+                    placeholder="0"
+                    className="w-full rounded-xl border border-purple-200 bg-white p-2.5 text-sm font-mono text-slate-900 focus:border-purple-600 focus:outline-none"
+                  />
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">ملاحظات التقفيل</label>
                 <textarea
@@ -523,6 +641,89 @@ export const ShiftsView: React.FC<{ activeShiftId: string; cashierName: string }
                   className="rounded-xl bg-red-600 hover:bg-red-700 text-white px-5 py-2 text-xs font-bold shadow"
                 >
                   تأكيد الإغلاق والطباعة
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Open New Shift */}
+      {showOpenModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <h3 className="text-base font-black text-slate-900 mb-4 flex items-center gap-2">
+              <Clock className="h-5 w-5 text-blue-600" />
+              <span>فتح وردية عمل جديدة</span>
+            </h3>
+
+            {/* Last shift closing cash banner */}
+            <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl mb-4 text-xs">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-blue-900 font-bold">آخر رصيد تم إغلاق الدرج به:</span>
+                <span className="font-mono text-base font-black text-blue-700">
+                  {lastClosingBalance.toLocaleString()} {settings?.currency || 'ج.م'}
+                </span>
+              </div>
+              {!isCashier ? (
+                <button
+                  type="button"
+                  onClick={() => setOpenCashInput(lastClosingBalance.toString())}
+                  className="w-full py-1.5 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition cursor-pointer"
+                >
+                  استخدام رصيد الإغلاق السابق ({lastClosingBalance.toLocaleString()} ج)
+                </button>
+              ) : (
+                <p className="text-[11px] text-blue-800 font-semibold">
+                  ⚠️ حساب الكاشير مقفول إجبارياً على استلام عهدة مطابقة لآخر رصيد إغلاق بالدرج.
+                </p>
+              )}
+            </div>
+
+            <form onSubmit={handleConfirmStartShift} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  رصيد الكاش الافتتاحي في الدرج ({settings?.currency || 'ج.م'}) *
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  value={openCashInput}
+                  onChange={(e) => setOpenCashInput(e.target.value)}
+                  disabled={isCashier}
+                  className={`w-full rounded-xl border-2 p-3 text-lg font-black font-mono focus:outline-none ${
+                    isCashier
+                      ? 'bg-slate-100 border-slate-300 text-slate-600 cursor-not-allowed'
+                      : 'border-blue-300 focus:border-blue-600 text-slate-900'
+                  }`}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">ملاحظات البداية (اختياري)</label>
+                <input
+                  type="text"
+                  value={openShiftNotes}
+                  onChange={(e) => setOpenShiftNotes(e.target.value)}
+                  placeholder="مثال: استلام العهدة كاملة من الكاشير السابق..."
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-xs focus:border-blue-600 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t">
+                <button
+                  type="button"
+                  onClick={() => setShowOpenModal(false)}
+                  className="rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 text-xs font-bold shadow cursor-pointer"
+                >
+                  تأكيد فتح الوردية
                 </button>
               </div>
             </form>

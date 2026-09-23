@@ -20,6 +20,7 @@ import { SettingsView } from './views/SettingsView';
 import { UsersView } from './views/UsersView';
 import { BarcodeView } from './views/BarcodeView';
 import type { User } from './types';
+import { DEFAULT_CASHIER_PAGES } from './types';
 import { systemLogger } from './services/logger';
 import { syncService, attachDexieSyncHooks } from './services/syncService';
 import { backupService } from './services/backupService';
@@ -90,6 +91,17 @@ export function App() {
     setCurrentUser(user);
     setCurrentCashier(user.displayName || user.name || user.username);
     setIsLocked(false);
+
+    if (user.role === 'cashier') {
+      const allowed = user.allowedPages || DEFAULT_CASHIER_PAGES;
+      if (!allowed.includes(activeTab)) {
+        setActiveTab(allowed[0] || 'pos');
+      }
+    } else if (user.role === 'technician') {
+      if (!['maintenance', 'phones', 'accessories'].includes(activeTab)) {
+        setActiveTab('maintenance');
+      }
+    }
   };
 
   return (
@@ -112,7 +124,7 @@ export function App() {
         {/* Main App Workspace */}
         <div className="flex flex-1 flex-col lg:flex-row overflow-hidden">
           {/* Navigation Sidebar */}
-          <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+          <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} currentUser={currentUser} />
 
           {/* Dynamic Content View Container */}
           <main className="flex-1 overflow-y-auto p-4 sm:p-6">
@@ -129,7 +141,7 @@ export function App() {
               <MaintenanceView activeShiftId={shiftId} cashierName={currentCashier} />
             )}
             {activeTab === 'shifts' && (
-              <ShiftsView activeShiftId={shiftId} cashierName={currentCashier} />
+              <ShiftsView activeShiftId={shiftId} cashierName={currentCashier} currentUser={currentUser} />
             )}
             {activeTab === 'analytics' && <AnalyticsView />}
             {activeTab === 'accounts' && <AccountsView />}

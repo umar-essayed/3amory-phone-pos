@@ -26,6 +26,7 @@ import type { SaleInvoice } from '../types';
 export const AnalyticsView: React.FC = () => {
   const invoices = useLiveQuery(() => db.invoices.orderBy('createdAt').reverse().toArray()) || [];
   const walletTx = useLiveQuery(() => db.walletTransactions.toArray()) || [];
+  const wallets = useLiveQuery(() => db.wallets.filter((w) => w.isActive).toArray()) || [];
   const repairs = useLiveQuery(() => db.repairs.where('status').equals('delivered').toArray()) || [];
   const settings = useLiveQuery(() => db.settings.get(1));
 
@@ -385,6 +386,126 @@ export const AnalyticsView: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Wallets & Instapay Performance & Limits Section */}
+      <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <Zap className="h-5 w-5 text-red-600" />
+          <h3 className="font-display font-bold text-slate-900 text-sm">
+            تحليلات خطوط الكاش والإنستاباي (المسحوبات، الليميت، والأرباح)
+          </h3>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {wallets.map((w) => {
+            const todayStr = now.toDateString();
+            const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            const curMonth = now.getMonth();
+            const curYear = now.getFullYear();
+
+            // Outgoing transfers (cash out / instapay)
+            const walletOutgoing = walletTx.filter(
+              (t) => t.walletId === w.id && (t.type === 'cash_out_to_customer' || t.type === 'instapay_transfer')
+            );
+            const todayOut = walletOutgoing
+              .filter((t) => new Date(t.createdAt).toDateString() === todayStr)
+              .reduce((s, t) => s + t.amount, 0);
+
+            const monthOut = walletOutgoing
+              .filter((t) => {
+                const d = new Date(t.createdAt);
+                return d.getMonth() === curMonth && d.getFullYear() === curYear;
+              })
+              .reduce((s, t) => s + t.amount, 0);
+
+            // Profits from commissions
+            const walletTxList = walletTx.filter((t) => t.walletId === w.id);
+            const profitToday = walletTxList
+              .filter((t) => new Date(t.createdAt).toDateString() === todayStr)
+              .reduce((s, t) => s + t.commission, 0);
+            const profitWeek = walletTxList
+              .filter((t) => new Date(t.createdAt) >= oneWeekAgo)
+              .reduce((s, t) => s + t.commission, 0);
+            const profitMonth = walletTxList
+              .filter((t) => {
+                const d = new Date(t.createdAt);
+                return d.getMonth() === curMonth && d.getFullYear() === curYear;
+              })
+              .reduce((s, t) => s + t.commission, 0);
+
+            return (
+              <div key={w.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full" style={{ backgroundColor: w.color }} />
+                    <strong className="text-xs text-slate-800">{w.name}</strong>
+                  </div>
+                  <span className="text-[11px] font-mono text-slate-500 font-bold">
+                    الرصيد: {w.balance.toLocaleString()} {cur}
+                  </span>
+                </div>
+
+                <div className="text-[10px] space-y-1.5 bg-white p-2.5 rounded-lg border border-slate-100">
+                  {w.dailyLimit && w.dailyLimit > 0 ? (
+                    <div>
+                      <div className="flex justify-between font-bold text-slate-600 mb-0.5">
+                        <span>الليميت اليومي:</span>
+                        <span className="font-mono">
+                          {todayOut.toLocaleString()} / {w.dailyLimit.toLocaleString()} ج ({Math.min(100, Math.round((todayOut / w.dailyLimit) * 100))}%)
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            todayOut / w.dailyLimit >= 0.9 ? 'bg-red-500' : todayOut / w.dailyLimit >= 0.7 ? 'bg-amber-500' : 'bg-emerald-500'
+                          }`}
+                          style={{ width: `${Math.min(100, Math.round((todayOut / w.dailyLimit) * 100))}%` }}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-[10px] text-slate-400">الليميت اليومي: مفتوح (غير محدد)</div>
+                  )}
+
+                  {w.monthlyLimit && w.monthlyLimit > 0 && (
+                    <div className="pt-0.5">
+                      <div className="flex justify-between font-bold text-slate-600 mb-0.5">
+                        <span>الليميت الشهري:</span>
+                        <span className="font-mono">
+                          {monthOut.toLocaleString()} / {w.monthlyLimit.toLocaleString()} ج ({Math.min(100, Math.round((monthOut / w.monthlyLimit) * 100))}%)
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            monthOut / w.monthlyLimit >= 0.9 ? 'bg-red-500' : monthOut / w.monthlyLimit >= 0.7 ? 'bg-amber-500' : 'bg-blue-500'
+                          }`}
+                          style={{ width: `${Math.min(100, Math.round((monthOut / w.monthlyLimit) * 100))}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-3 gap-1.5 text-center text-[10px]">
+                  <div className="bg-emerald-50 p-1.5 rounded-lg border border-emerald-100">
+                    <span className="block text-[8px] text-emerald-800 font-bold">ربح اليوم</span>
+                    <span className="font-mono font-black text-emerald-700">+{profitToday.toLocaleString()} ج</span>
+                  </div>
+                  <div className="bg-blue-50 p-1.5 rounded-lg border border-blue-100">
+                    <span className="block text-[8px] text-blue-800 font-bold">الأسبوع</span>
+                    <span className="font-mono font-black text-blue-700">+{profitWeek.toLocaleString()} ج</span>
+                  </div>
+                  <div className="bg-purple-50 p-1.5 rounded-lg border border-purple-100">
+                    <span className="block text-[8px] text-purple-800 font-bold">الشهر</span>
+                    <span className="font-mono font-black text-purple-700">+{profitMonth.toLocaleString()} ج</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 

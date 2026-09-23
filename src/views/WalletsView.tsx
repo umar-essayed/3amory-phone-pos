@@ -32,7 +32,9 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
   cashierName,
 }) => {
   const { showAlert, showConfirm, showToast } = useModal();
+  const openShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
   const wallets = useLiveQuery(() => db.wallets.filter((w) => w.isActive).toArray()) || [];
+  const allTransactions = useLiveQuery(() => db.walletTransactions.toArray()) || [];
   const transactions =
     useLiveQuery(() =>
       db.walletTransactions.orderBy('createdAt').reverse().limit(50).toArray()
@@ -61,6 +63,8 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
   const [newWalletType, setNewWalletType] = useState<StoreWallet['type']>('vodafone');
   const [newWalletAccount, setNewWalletAccount] = useState('');
   const [newWalletBalance, setNewWalletBalance] = useState('');
+  const [newWalletDailyLimit, setNewWalletDailyLimit] = useState('');
+  const [newWalletMonthlyLimit, setNewWalletMonthlyLimit] = useState('');
   const [editingWallet, setEditingWallet] = useState<StoreWallet | null>(null);
 
   const amountInputRef = useRef<HTMLInputElement>(null);
@@ -174,7 +178,41 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
       return;
     }
 
+    if (!openShift) {
+      showAlert('لا يمكن تنفيذ أي عملية تحويل بدون وجود وردية عمل مفتوحة حالياً! يرجى فتح وردية أولاً من قسم الورديات.', 'الوردية مغلقة', 'warning');
+      return;
+    }
+
     const currentWallet = wallets.find((w) => w.id === selectedWalletId) || wallets[0];
+
+    // Daily Limit verification for Outgoing Transfers (Cash Out / Instapay)
+    // Rule: Deposits from customer (Cash In) are unlimited and do not consume limit.
+    const isOutgoing = txType === 'cash_out_to_customer' || txType === 'instapay_transfer';
+    if (isOutgoing && currentWallet.dailyLimit && currentWallet.dailyLimit > 0) {
+      const todayStr = new Date().toDateString();
+      const currentTodayOut = allTransactions
+        .filter(
+          (t) =>
+            t.walletId === currentWallet.id &&
+            (t.type === 'cash_out_to_customer' || t.type === 'instapay_transfer') &&
+            new Date(t.createdAt).toDateString() === todayStr
+        )
+        .reduce((sum, t) => sum + t.amount, 0);
+
+      if (currentTodayOut + numAmount > currentWallet.dailyLimit) {
+        const proceed = await showConfirm(
+          `تنبيه: هذه العملية ستتجاوز الحد اليومي للتحويلات الصادرة على هذا الخط!\n\n` +
+          `الحد اليومي المحدد: ${currentWallet.dailyLimit.toLocaleString()} ج\n` +
+          `المحول اليوم حتى الآن: ${currentTodayOut.toLocaleString()} ج\n` +
+          `المطلوب تحويله الآن: ${numAmount.toLocaleString()} ج\n` +
+          `الإجمالي سيكون: ${(currentTodayOut + numAmount).toLocaleString()} ج\n\n` +
+          `هل تريد المتابعة وتأكيد العملية؟`,
+          'تجاوز الليميت اليومي',
+          { confirmText: 'نعم، متابعة التحويل', cancelText: 'إلغاء', danger: true }
+        );
+        if (!proceed) return;
+      }
+    }
 
     // Balance check for cash out / transfers
     if (
@@ -201,7 +239,7 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
       netProfit: numCommission,
       customerPhone: customerPhone.trim() || undefined,
       customerName: customerName.trim() || undefined,
-      shiftId: activeShiftId,
+      shiftId: openShift.id,
       cashierName,
       notes: notes.trim() || undefined,
       createdAt: new Date().toISOString(),
@@ -223,13 +261,13 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
         }
       }
 
-      const shift = await db.shifts.get(activeShiftId);
+      const shift = await db.shifts.get(openShift.id);
       if (shift) {
-        await db.shifts.update(activeShiftId, {
+        await db.shifts.update(openShift.id, {
           closingCashSystem: shift.closingCashSystem + numCommission,
-          totalCommissions: shift.totalCommissions + numCommission,
-          totalWalletIn: txType === 'cash_out_to_customer' ? shift.totalWalletIn + numAmount : shift.totalWalletIn,
-          totalWalletOut: txType === 'cash_in_from_customer' ? shift.totalWalletOut + numAmount : shift.totalWalletOut,
+          totalCommissions: (shift.totalCommissions || 0) + numCommission,
+          totalWalletIn: txType === 'cash_out_to_customer' ? (shift.totalWalletIn || 0) + numAmount : shift.totalWalletIn,
+          totalWalletOut: txType === 'cash_in_from_customer' ? (shift.totalWalletOut || 0) + numAmount : shift.totalWalletOut,
         });
       }
     });
@@ -264,12 +302,17 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
       other: '#475569',
     };
 
+    const dLimit = parseFloat(newWalletDailyLimit) || undefined;
+    const mLimit = parseFloat(newWalletMonthlyLimit) || undefined;
+
     await db.wallets.add({
       id: `wlt_${Date.now()}`,
       name: newWalletName.trim(),
       type: newWalletType,
       phoneNumberOrAccount: newWalletAccount.trim(),
       balance: parseFloat(newWalletBalance) || 0,
+      dailyLimit: dLimit,
+      monthlyLimit: mLimit,
       color: colors[newWalletType] || '#2563eb',
       isActive: true,
       createdAt: new Date().toISOString(),
@@ -279,6 +322,8 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
     setNewWalletName('');
     setNewWalletAccount('');
     setNewWalletBalance('');
+    setNewWalletDailyLimit('');
+    setNewWalletMonthlyLimit('');
     showToast('تمت إضافة المحفظة بنجاح');
   };
 
@@ -581,35 +626,133 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {wallets.map((w) => {
             const isSelected = selectedWalletId === w.id;
+            const now = new Date();
+            const todayStr = now.toDateString();
+            const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            const curMonth = now.getMonth();
+            const curYear = now.getFullYear();
+
+            // Outgoing transfers (cash out / instapay) - only outgoing counts towards limit
+            const walletOutgoing = allTransactions.filter(
+              (t) => t.walletId === w.id && (t.type === 'cash_out_to_customer' || t.type === 'instapay_transfer')
+            );
+            const todayOut = walletOutgoing
+              .filter((t) => new Date(t.createdAt).toDateString() === todayStr)
+              .reduce((s, t) => s + t.amount, 0);
+
+            const monthOut = walletOutgoing
+              .filter((t) => {
+                const d = new Date(t.createdAt);
+                return d.getMonth() === curMonth && d.getFullYear() === curYear;
+              })
+              .reduce((s, t) => s + t.amount, 0);
+
+            // Profits from commissions
+            const walletTxList = allTransactions.filter((t) => t.walletId === w.id);
+            const profitToday = walletTxList
+              .filter((t) => new Date(t.createdAt).toDateString() === todayStr)
+              .reduce((s, t) => s + t.commission, 0);
+            const profitWeek = walletTxList
+              .filter((t) => new Date(t.createdAt) >= oneWeekAgo)
+              .reduce((s, t) => s + t.commission, 0);
+            const profitMonth = walletTxList
+              .filter((t) => {
+                const d = new Date(t.createdAt);
+                return d.getMonth() === curMonth && d.getFullYear() === curYear;
+              })
+              .reduce((s, t) => s + t.commission, 0);
+
             return (
               <div
                 key={w.id}
                 onClick={() => setSelectedWalletId(w.id)}
-                className={`p-4 rounded-2xl border-2 transition cursor-pointer relative overflow-hidden group ${
+                className={`p-4 rounded-2xl border-2 transition cursor-pointer relative overflow-hidden group flex flex-col justify-between ${
                   isSelected
                     ? 'border-blue-600 bg-blue-50/60 shadow-md ring-2 ring-blue-600/20'
                     : 'border-slate-200 bg-white hover:border-slate-300'
                 }`}
               >
-                <div className="absolute top-0 right-0 left-0 h-1.5" style={{ backgroundColor: w.color }} />
-                <div className="flex items-center justify-between mb-1 mt-1">
-                  <span className="text-xs font-black text-slate-800 truncate">{w.name}</span>
-                  {w.type === 'instapay' ? (
-                    <CreditCard className="h-4 w-4 text-purple-600 shrink-0" />
-                  ) : (
-                    <Smartphone className="h-4 w-4 text-slate-500 shrink-0" />
-                  )}
-                </div>
-                <p className="text-[11px] font-mono text-slate-500 truncate">{w.phoneNumberOrAccount}</p>
-                <div className="mt-3 flex items-baseline justify-between border-t border-slate-100 pt-2">
-                  <span className="text-[10px] text-slate-400">الرصيد:</span>
-                  <span className="text-sm font-black font-mono text-slate-900">
-                    {w.balance.toLocaleString()} {cur}
-                  </span>
+                <div>
+                  <div className="absolute top-0 right-0 left-0 h-1.5" style={{ backgroundColor: w.color }} />
+                  <div className="flex items-center justify-between mb-1 mt-1">
+                    <span className="text-xs font-black text-slate-800 truncate">{w.name}</span>
+                    {w.type === 'instapay' ? (
+                      <CreditCard className="h-4 w-4 text-purple-600 shrink-0" />
+                    ) : (
+                      <Smartphone className="h-4 w-4 text-slate-500 shrink-0" />
+                    )}
+                  </div>
+                  <p className="text-[11px] font-mono text-slate-500 truncate">{w.phoneNumberOrAccount}</p>
+                  
+                  <div className="mt-2 flex items-baseline justify-between border-t border-slate-100 pt-2">
+                    <span className="text-[10px] text-slate-400">الرصيد:</span>
+                    <span className="text-sm font-black font-mono text-slate-900">
+                      {w.balance.toLocaleString()} {cur}
+                    </span>
+                  </div>
+
+                  {/* Outgoing Transfer Limits Progress Bars */}
+                  <div className="mt-2 space-y-1.5 bg-slate-50/80 p-2 rounded-xl border border-slate-100 text-[10px]">
+                    {w.dailyLimit && w.dailyLimit > 0 ? (
+                      <div>
+                        <div className="flex justify-between font-bold text-slate-600 mb-0.5">
+                          <span>ليميت اليوم:</span>
+                          <span className="font-mono text-[9px]">
+                            {todayOut.toLocaleString()} / {w.dailyLimit.toLocaleString()} ج ({Math.min(100, Math.round((todayOut / w.dailyLimit) * 100))}%)
+                          </span>
+                        </div>
+                        <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${
+                              todayOut / w.dailyLimit >= 0.9 ? 'bg-red-500' : todayOut / w.dailyLimit >= 0.7 ? 'bg-amber-500' : 'bg-emerald-500'
+                            }`}
+                            style={{ width: `${Math.min(100, Math.round((todayOut / w.dailyLimit) * 100))}%` }}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-[9px] text-slate-400">الليميت اليومي: مفتوح</div>
+                    )}
+
+                    {w.monthlyLimit && w.monthlyLimit > 0 && (
+                      <div className="pt-0.5">
+                        <div className="flex justify-between font-bold text-slate-600 mb-0.5">
+                          <span>ليميت الشهر:</span>
+                          <span className="font-mono text-[9px]">
+                            {monthOut.toLocaleString()} / {w.monthlyLimit.toLocaleString()} ج ({Math.min(100, Math.round((monthOut / w.monthlyLimit) * 100))}%)
+                          </span>
+                        </div>
+                        <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${
+                              monthOut / w.monthlyLimit >= 0.9 ? 'bg-red-500' : monthOut / w.monthlyLimit >= 0.7 ? 'bg-amber-500' : 'bg-blue-500'
+                            }`}
+                            style={{ width: `${Math.min(100, Math.round((monthOut / w.monthlyLimit) * 100))}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Net Profits Badges */}
+                  <div className="grid grid-cols-3 gap-1 mt-2 text-center">
+                    <div className="bg-emerald-50 p-1 rounded-lg border border-emerald-100">
+                      <span className="block text-[8px] text-emerald-800 font-bold">اليوم</span>
+                      <span className="text-[10px] font-mono font-black text-emerald-700">+{profitToday}</span>
+                    </div>
+                    <div className="bg-blue-50 p-1 rounded-lg border border-blue-100">
+                      <span className="block text-[8px] text-blue-800 font-bold">أسبوع</span>
+                      <span className="text-[10px] font-mono font-black text-blue-700">+{profitWeek}</span>
+                    </div>
+                    <div className="bg-purple-50 p-1 rounded-lg border border-purple-100">
+                      <span className="block text-[8px] text-purple-800 font-bold">شهر</span>
+                      <span className="text-[10px] font-mono font-black text-purple-700">+{profitMonth}</span>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Edit & Delete Mini Buttons */}
-                <div className="flex items-center gap-1 mt-2 opacity-80 group-hover:opacity-100 transition">
+                <div className="flex items-center justify-end gap-1 mt-3 pt-2 border-t border-slate-100 opacity-80 group-hover:opacity-100 transition">
                   <button
                     type="button"
                     onClick={(e) => {
@@ -815,6 +958,31 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
                 />
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">الحد اليومي للتحويل (ج.م)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={newWalletDailyLimit}
+                    onChange={(e) => setNewWalletDailyLimit(e.target.value)}
+                    placeholder="0 = مفتوح"
+                    className="w-full rounded-xl border border-slate-300 p-2.5 text-sm font-mono focus:border-blue-600 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">الحد الشهري للتحويل (ج.م)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={newWalletMonthlyLimit}
+                    onChange={(e) => setNewWalletMonthlyLimit(e.target.value)}
+                    placeholder="0 = مفتوح"
+                    className="w-full rounded-xl border border-slate-300 p-2.5 text-sm font-mono focus:border-blue-600 focus:outline-none"
+                  />
+                </div>
+              </div>
+
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
@@ -844,7 +1012,7 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
             <div className="flex items-center justify-between bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4">
               <div className="flex items-center gap-2">
                 <Edit2 className="h-5 w-5 text-white" />
-                <h3 className="font-display text-base font-bold text-white">تعديل بيانات المحفظة</h3>
+                <h3 className="font-display text-base font-bold text-white">تعديل بيانات المحفظة والليميت</h3>
               </div>
               <button onClick={() => setEditingWallet(null)} className="text-white/80 hover:text-white cursor-pointer">
                 <X className="h-5 w-5" />
@@ -857,9 +1025,11 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
                   name: editingWallet.name,
                   phoneNumberOrAccount: editingWallet.phoneNumberOrAccount,
                   balance: Number(editingWallet.balance),
+                  dailyLimit: editingWallet.dailyLimit ? Number(editingWallet.dailyLimit) : undefined,
+                  monthlyLimit: editingWallet.monthlyLimit ? Number(editingWallet.monthlyLimit) : undefined,
                 });
                 setEditingWallet(null);
-                showToast('تم تعديل المحفظة بنجاح');
+                showToast('تم تعديل المحفظة والليميت بنجاح');
               }}
               className="p-6 space-y-4"
             >
@@ -893,6 +1063,40 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
                   className="w-full rounded-xl border border-slate-200 p-2.5 text-sm font-mono font-bold focus:border-blue-500 focus:outline-none"
                   required
                 />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">الحد اليومي (ج.م)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={editingWallet.dailyLimit ?? ''}
+                    onChange={(e) =>
+                      setEditingWallet({
+                        ...editingWallet,
+                        dailyLimit: e.target.value ? Number(e.target.value) : undefined,
+                      })
+                    }
+                    placeholder="0 = مفتوح"
+                    className="w-full rounded-xl border border-slate-200 p-2.5 text-sm font-mono focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">الحد الشهري (ج.م)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={editingWallet.monthlyLimit ?? ''}
+                    onChange={(e) =>
+                      setEditingWallet({
+                        ...editingWallet,
+                        monthlyLimit: e.target.value ? Number(e.target.value) : undefined,
+                      })
+                    }
+                    placeholder="0 = مفتوح"
+                    className="w-full rounded-xl border border-slate-200 p-2.5 text-sm font-mono focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
               </div>
               <div className="flex gap-2 pt-2">
                 <button

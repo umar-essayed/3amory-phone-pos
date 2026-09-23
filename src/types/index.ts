@@ -60,6 +60,7 @@ export interface User {
   pin: string;
   role: Role;
   isActive: boolean;
+  allowedPages?: string[];
   createdAt: string;
 }
 
@@ -126,6 +127,8 @@ export interface StoreWallet {
   balance: number;
   color: string;
   isActive: boolean;
+  dailyLimit?: number;
+  monthlyLimit?: number;
   createdAt: string;
 }
 
@@ -237,11 +240,18 @@ export interface Shift {
   closingCashActual: number;
   cashDifference: number; // actual - system
   totalSalesCash: number;
+  totalSalesWallet?: number;
+  totalSalesDebt?: number;
+  totalSalesCount?: number;
   totalWalletIn: number;
   totalWalletOut: number;
   totalCommissions: number;
   totalExpenses: number;
   totalReturnsCash?: number;
+  fawrySalesTotal?: number;
+  fawryNetProfit?: number;
+  closingWallets?: Record<string, number>;
+  closedAt?: string;
   notes?: string;
 }
 
@@ -286,3 +296,40 @@ export interface SyncQueueItem {
   timestamp: string;
   synced: boolean;
 }
+
+export interface DebtTransaction {
+  id: string;
+  partyType: 'customer' | 'supplier';
+  partyId: string;
+  partyName: string;
+  shiftId?: string;
+  type: 'debt_increase' | 'payment';
+  amount: number;
+  balanceBefore: number;
+  balanceAfter: number;
+  notes?: string;
+  recordedBy: string;
+  createdAt: string;
+}
+
+export interface SystemPageDef {
+  id: string;
+  label: string;
+}
+
+export const ALL_SYSTEM_PAGES: SystemPageDef[] = [
+  { id: 'pos', label: 'نقطة البيع (الكاشير)' },
+  { id: 'wallets', label: 'المحافظ والتحويلات' },
+  { id: 'phones', label: 'الهواتف الذكية' },
+  { id: 'accessories', label: 'الإكسسوارات والقطع' },
+  { id: 'barcode', label: 'طباعة الباركود' },
+  { id: 'maintenance', label: 'قسم الصيانة' },
+  { id: 'shifts', label: 'إدارة الورديات' },
+  { id: 'analytics', label: 'التقارير والأرباح' },
+  { id: 'accounts', label: 'العملاء والموردين (الآجل)' },
+  { id: 'users', label: 'المستخدمين والصلاحيات' },
+  { id: 'settings', label: 'إعدادات النظام' },
+];
+
+export const DEFAULT_CASHIER_PAGES = ['pos', 'wallets', 'accessories', 'barcode', 'maintenance', 'shifts'];
+
