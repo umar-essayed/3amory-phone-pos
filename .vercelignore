@@ -1,0 +1,19 @@
+# Vercel Ignore File
+node_modules
+release
+release-assets
+*.AppImage
+*.run
+*.exe
+*.deb
+*.rpm
+qz-tray*
+3amory-phone*
+dist
+dist-ssr
+.git
+Screenshot*.png
+f0dd08c5-8a7a-4602-b71b-022bb4a87384.png
+electron
+logs
+*.log
