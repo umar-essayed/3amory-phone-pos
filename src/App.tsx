@@ -24,6 +24,7 @@ import { DEFAULT_CASHIER_PAGES } from './types';
 import { systemLogger } from './services/logger';
 import { syncService, attachDexieSyncHooks } from './services/syncService';
 import { backupService } from './services/backupService';
+import { MobileApp } from './mobile/MobileApp';
 
 export function App() {
   const [dbReady, setDbReady] = useState(false);
@@ -31,6 +32,19 @@ export function App() {
   const [currentCashier, setCurrentCashier] = useState<string>('المدير العام (المالك)');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLocked, setIsLocked] = useState<boolean>(true);
+
+  // Mobile mode detection
+  const [isMobileMode, setIsMobileMode] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('mobile') === 'true' || window.location.hash.includes('mobile') || window.location.pathname.startsWith('/mobile')) {
+      return true;
+    }
+    const stored = localStorage.getItem('elghandour_view_mode');
+    if (stored === 'desktop') return false;
+    if (stored === 'mobile') return true;
+    return window.innerWidth < 768;
+  });
 
   // Active shift from DB
   const activeShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
@@ -104,6 +118,19 @@ export function App() {
     }
   };
 
+  if (isMobileMode) {
+    return (
+      <ModalProvider>
+        <MobileApp
+          onSwitchToDesktop={() => {
+            localStorage.setItem('elghandour_view_mode', 'desktop');
+            setIsMobileMode(false);
+          }}
+        />
+      </ModalProvider>
+    );
+  }
+
   return (
     <ModalProvider>
       {/* Lock / Login Screen Overlay */}
@@ -119,6 +146,10 @@ export function App() {
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           onLockScreen={() => setIsLocked(true)}
+          onSwitchToMobile={() => {
+            localStorage.setItem('elghandour_view_mode', 'mobile');
+            setIsMobileMode(true);
+          }}
         />
 
         {/* Main App Workspace */}

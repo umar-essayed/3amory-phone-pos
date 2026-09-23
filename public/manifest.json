@@ -1,0 +1,24 @@
+{
+  "short_name": "الغندور فون",
+  "name": "الغندور فون - نظام إدارة الهواتف والدرج",
+  "description": "لوحة متابعة فورية للهواتف والورديات والدرج والمحافظ لمتجر الغندور فون",
+  "icons": [
+    {
+      "src": "/logo-removebg-preview.png",
+      "type": "image/png",
+      "sizes": "192x192 512x512"
+    },
+    {
+      "src": "/logo.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/?mobile=true",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "display": "standalone",
+  "orientation": "portrait",
+  "lang": "ar",
+  "dir": "rtl"
+}

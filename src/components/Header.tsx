@@ -10,6 +10,7 @@ import {
   LogOut,
   UserCheck,
   FolderOpen,
+  Smartphone,
 } from 'lucide-react';
 import { db } from '../db';
 import { syncDataToFirebase } from '../services/firebase';
@@ -23,6 +24,7 @@ interface HeaderProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   onLockScreen?: () => void;
+  onSwitchToMobile?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -30,6 +32,7 @@ export const Header: React.FC<HeaderProps> = ({
   activeTab,
   setActiveTab,
   onLockScreen,
+  onSwitchToMobile,
 }) => {
   const settings = useLiveQuery(() => db.settings.get(1));
   const openShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
@@ -137,6 +140,19 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <FolderOpen className="h-4 w-4" />
           </button>
+
+          {/* Switch to Mobile View */}
+          {onSwitchToMobile && (
+            <button
+              type="button"
+              onClick={onSwitchToMobile}
+              title="عرض لوحة المتابعة للهاتف (Mobile Dashboard)"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition cursor-pointer"
+            >
+              <Smartphone className="h-4 w-4" />
+              <span className="text-xs font-bold hidden xl:inline">لوحة الموبايل</span>
+            </button>
+          )}
 
           {/* Settings Quick Access */}
           <button
