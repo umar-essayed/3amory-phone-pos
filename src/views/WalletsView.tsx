@@ -263,8 +263,17 @@ export const WalletsView: React.FC<{ activeShiftId: string; cashierName: string 
 
       const shift = await db.shifts.get(openShift.id);
       if (shift) {
+        let cashDelta = 0;
+        if (txType === 'cash_out_to_customer' || txType === 'instapay_transfer') {
+          // العميل يعطي المحل كاش (المبلغ المراد تحويله + العمولة)
+          cashDelta = numAmount + numCommission;
+        } else if (txType === 'cash_in_from_customer') {
+          // المحل يسلم العميل كاش من الدرج (المبلغ المستلم إلكترونياً ناقص العمولة)
+          cashDelta = -(numAmount - numCommission);
+        }
+
         await db.shifts.update(openShift.id, {
-          closingCashSystem: shift.closingCashSystem + numCommission,
+          closingCashSystem: shift.closingCashSystem + cashDelta,
           totalCommissions: (shift.totalCommissions || 0) + numCommission,
           totalWalletIn: txType === 'cash_out_to_customer' ? (shift.totalWalletIn || 0) + numAmount : shift.totalWalletIn,
           totalWalletOut: txType === 'cash_in_from_customer' ? (shift.totalWalletOut || 0) + numAmount : shift.totalWalletOut,

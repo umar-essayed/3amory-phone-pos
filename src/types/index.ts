@@ -250,6 +250,7 @@ export interface Shift {
   totalReturnsCash?: number;
   fawrySalesTotal?: number;
   fawryNetProfit?: number;
+  totalNetProfit?: number;
   closingWallets?: Record<string, number>;
   closedAt?: string;
   notes?: string;
@@ -271,6 +272,13 @@ export interface Customer {
   phone: string;
   totalDebt: number;
   totalPaid: number;
+  isVipCash?: boolean; // عميل كاش مميز
+  defaultWalletId?: string; // المحفظة المربوطة
+  vipBalance?: number; // رصيد حسابه الجاري (موجب = عليه، سالب = له)
+  vipTotalSent?: number; // إجمالي التحويلات
+  vipTotalReceived?: number; // إجمالي الاستلامات
+  vipTotalProfit?: number; // أرباح وعمولات المحل منه
+  vipUnsettledProfit?: number; // الأرباح غير المسواة في الوردية بعد
   notes?: string;
   createdAt: string;
 }
@@ -303,8 +311,11 @@ export interface DebtTransaction {
   partyId: string;
   partyName: string;
   shiftId?: string;
-  type: 'debt_increase' | 'payment';
+  type: 'debt_increase' | 'payment' | 'vip_cash_transfer' | 'vip_cash_receive' | 'vip_cash_settlement';
   amount: number;
+  commission?: number;
+  walletId?: string;
+  walletName?: string;
   balanceBefore: number;
   balanceAfter: number;
   notes?: string;

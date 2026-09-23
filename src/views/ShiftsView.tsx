@@ -13,6 +13,7 @@ import {
   Calendar,
   Layers,
   History,
+  Zap,
 } from 'lucide-react';
 import { db } from '../db';
 import { triggerPrint } from '../services/printer';
@@ -44,6 +45,15 @@ export const ShiftsView: React.FC<{
   // Active shift wallet transactions count
   const activeShiftWalletCount =
     useLiveQuery(() => (currentShiftId ? db.walletTransactions.where('shiftId').equals(currentShiftId).count() : 0)) || 0;
+  // Active shift merchandise profit
+  const activeShiftInvoicesProfit =
+    useLiveQuery(async () => {
+      if (!currentShiftId) return 0;
+      const invs = await db.invoices.where('shiftId').equals(currentShiftId).toArray();
+      return invs
+        .filter((i) => i.status !== 'canceled')
+        .reduce((sum, i) => sum + (i.totalProfit || 0), 0);
+    }) || 0;
 
   // Auto-heal active shift if drawer balance is negative
   React.useEffect(() => {
@@ -156,9 +166,12 @@ export const ShiftsView: React.FC<{
         .filter((inv) => inv.paymentMethod === 'debt' && inv.status !== 'canceled')
         .reduce((sum, inv) => sum + inv.total, 0);
       const totalSalesCount = shiftInvoices.filter((inv) => inv.status !== 'canceled').length;
+      const salesProfit = shiftInvoices
+        .filter((inv) => inv.status !== 'canceled')
+        .reduce((sum, inv) => sum + (inv.totalProfit || 0), 0);
 
-      // If Fawry profit entered, record transaction & add to commissions and drawer
-      if (fawryProfit > 0) {
+      // If Fawry sales or profit entered, record transaction & add to commissions and drawer
+      if (fawrySales > 0 || fawryProfit > 0) {
         await db.walletTransactions.add({
           id: `wtx_fawry_${Date.now()}`,
           walletId: 'fawry_system',
@@ -170,13 +183,14 @@ export const ShiftsView: React.FC<{
           netProfit: fawryProfit,
           shiftId: shiftToClose.id,
           cashierName,
-          notes: 'دخل / أرباح مكن فوري وكروت شحن',
+          notes: 'إجمالي دخل مكن فوري والتحصيلات الإلكترونية وكروت الشحن',
           createdAt: new Date().toISOString(),
         });
       }
 
       const updatedCommissions = (shiftToClose.totalCommissions || 0) + fawryProfit;
-      const updatedSystemCash = shiftToClose.closingCashSystem + fawryProfit;
+      const updatedSystemCash = shiftToClose.closingCashSystem + fawrySales;
+      const totalNetProfit = salesProfit + updatedCommissions - (shiftToClose.totalExpenses || 0);
       const diff = actual - updatedSystemCash;
       const closedTime = new Date().toISOString();
 
@@ -194,6 +208,7 @@ export const ShiftsView: React.FC<{
         totalCommissions: updatedCommissions,
         fawrySalesTotal: fawrySales,
         fawryNetProfit: fawryProfit,
+        totalNetProfit,
         notes: closingNotes.trim() || undefined,
       });
 
@@ -214,6 +229,7 @@ export const ShiftsView: React.FC<{
             totalCommissions: updatedCommissions,
             fawrySalesTotal: fawrySales,
             fawryNetProfit: fawryProfit,
+            totalNetProfit,
           },
           settings,
         });
@@ -539,111 +555,137 @@ export const ShiftsView: React.FC<{
               <span>تقفيل وإغلاق الوردية (جرد الدرج)</span>
             </h3>
 
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-4 text-xs space-y-2">
-              <div className="flex justify-between">
-                <span>الكاش المفترض بالدرج (حسابات السيستم):</span>
-                <strong className="font-mono text-sm text-blue-700">
-                  {activeShift.closingCashSystem.toLocaleString()} {settings?.currency || 'ج.م'}
-                </strong>
-              </div>
-              <div className="flex justify-between text-slate-500">
-                <span>إجمالي مبيعات الكاش بالوردية:</span>
-                <span className="font-mono">{activeShift.totalSalesCash.toLocaleString()} ج</span>
-              </div>
-            </div>
+            {/* Two Key Metrics: Total Drawer Cash & Net Profit */}
+            {(() => {
+              const currentFawrySales = parseFloat(fawrySalesTotalInput) || 0;
+              const currentFawryProfit = parseFloat(fawryNetProfitInput) || 0;
+              const expectedDrawerCash = activeShift.closingCashSystem + currentFawrySales;
+              const shiftNetProfit = activeShiftInvoicesProfit + (activeShift.totalCommissions || 0) + currentFawryProfit - (activeShift.totalExpenses || 0);
+              const calculatedDiff = actualCashInput ? parseFloat(actualCashInput) - expectedDrawerCash : 0;
 
-            <form onSubmit={handleCloseShift} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  المبلغ الفعلي المعدود بالدرج يدوياً ({settings?.currency || 'ج.م'})
-                </label>
-                <input
-                  type="number"
-                  step="any"
-                  value={actualCashInput}
-                  onChange={(e) => setActualCashInput(e.target.value)}
-                  className="w-full rounded-xl border-2 border-red-300 p-3 text-lg font-black font-mono text-slate-900 focus:border-red-600 focus:outline-none"
-                  required
-                />
-              </div>
+              return (
+                <div className="space-y-3 mb-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-blue-50 border border-blue-200 p-3.5 rounded-2xl text-center shadow-2xs">
+                      <span className="block text-[11px] text-blue-900 font-bold mb-1">إجمالي كاش الدرج (المتوقع)</span>
+                      <span className="font-mono text-xl font-black text-blue-700 block">
+                        {expectedDrawerCash.toLocaleString()} {settings?.currency || 'ج.م'}
+                      </span>
+                      <span className="text-[10px] text-blue-600 block mt-1">كاش المبيعات والتحويلات والمكن</span>
+                    </div>
 
-              {actualCashInput && (
-                <div
-                  className={`p-3 rounded-xl text-xs font-bold flex justify-between ${
-                    parseFloat(actualCashInput) - activeShift.closingCashSystem === 0
-                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                      : parseFloat(actualCashInput) - activeShift.closingCashSystem > 0
-                      ? 'bg-blue-50 text-blue-800 border border-blue-200'
-                      : 'bg-red-50 text-red-800 border border-red-200'
-                  }`}
-                >
-                  <span>الفارق المحسوب:</span>
-                  <span>
-                    {parseFloat(actualCashInput) - activeShift.closingCashSystem === 0 && 'مطابق تماماً (لا عجز ولا زيادة)'}
-                    {parseFloat(actualCashInput) - activeShift.closingCashSystem > 0 &&
-                      `زيادة بالدرج +${(parseFloat(actualCashInput) - activeShift.closingCashSystem).toLocaleString()} ج`}
-                    {parseFloat(actualCashInput) - activeShift.closingCashSystem < 0 &&
-                      `عجز بالدرج ${(parseFloat(actualCashInput) - activeShift.closingCashSystem).toLocaleString()} ج`}
-                  </span>
+                    <div className="bg-emerald-50 border border-emerald-200 p-3.5 rounded-2xl text-center shadow-2xs">
+                      <span className="block text-[11px] text-emerald-900 font-bold mb-1">صافي ربح الوردية</span>
+                      <span className="font-mono text-xl font-black text-emerald-700 block">
+                        +{shiftNetProfit.toLocaleString()} {settings?.currency || 'ج.م'}
+                      </span>
+                      <span className="text-[10px] text-emerald-600 block mt-1">أرباح البضاعة + عمولات الكاش وفوري</span>
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleCloseShift} className="space-y-4">
+                    {/* Fawry Machine Collection Inputs */}
+                    <div className="space-y-2.5 bg-purple-50/70 p-3.5 rounded-2xl border border-purple-200">
+                      <p className="text-xs font-black text-purple-950 flex items-center gap-1.5">
+                        <Zap className="h-4 w-4 text-purple-700" />
+                        <span>ماكينة فوري / المدفوعات والتحصيلات الإلكترونية</span>
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                            إجمالي دخل المكن اليوم (يضاف كاش للدرج)
+                          </label>
+                          <input
+                            type="number"
+                            step="any"
+                            value={fawrySalesTotalInput}
+                            onChange={(e) => setFawrySalesTotalInput(e.target.value)}
+                            placeholder="0"
+                            className="w-full rounded-xl border border-purple-300 bg-white p-2.5 text-sm font-mono font-bold text-slate-900 focus:border-purple-600 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                            صافي ربح المكنة (يضاف لصافي الأرباح)
+                          </label>
+                          <input
+                            type="number"
+                            step="any"
+                            value={fawryNetProfitInput}
+                            onChange={(e) => setFawryNetProfitInput(e.target.value)}
+                            placeholder="0"
+                            className="w-full rounded-xl border border-purple-300 bg-white p-2.5 text-sm font-mono font-bold text-slate-900 focus:border-purple-600 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        المبلغ الفعلي المعدود بالدرج يدوياً ({settings?.currency || 'ج.م'}) *
+                      </label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={actualCashInput}
+                        onChange={(e) => setActualCashInput(e.target.value)}
+                        placeholder="0"
+                        className="w-full rounded-xl border-2 border-red-300 p-3 text-lg font-black font-mono text-slate-900 focus:border-red-600 focus:outline-none"
+                        required
+                      />
+                    </div>
+
+                    {actualCashInput && (
+                      <div
+                        className={`p-3 rounded-xl text-xs font-bold flex justify-between ${
+                          calculatedDiff === 0
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                            : calculatedDiff > 0
+                            ? 'bg-blue-50 text-blue-800 border border-blue-200'
+                            : 'bg-red-50 text-red-800 border border-red-200'
+                        }`}
+                      >
+                        <span>الفارق المحسوب:</span>
+                        <span>
+                          {calculatedDiff === 0 && 'مطابق تماماً (لا عجز ولا زيادة)'}
+                          {calculatedDiff > 0 &&
+                            `زيادة بالدرج +${calculatedDiff.toLocaleString()} ج`}
+                          {calculatedDiff < 0 &&
+                            `عجز بالدرج ${calculatedDiff.toLocaleString()} ج`}
+                        </span>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">ملاحظات التقفيل</label>
+                      <textarea
+                        rows={2}
+                        value={closingNotes}
+                        onChange={(e) => setClosingNotes(e.target.value)}
+                        placeholder="أي ملاحظات حول العجز أو النثريات..."
+                        className="w-full rounded-xl border border-slate-300 p-2 text-xs focus:border-red-600 focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-2 border-t">
+                      <button
+                        type="button"
+                        onClick={() => setShowCloseModal(false)}
+                        className="rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                      >
+                        إلغاء
+                      </button>
+                      <button
+                        type="submit"
+                        className="rounded-xl bg-red-600 hover:bg-red-700 text-white px-5 py-2 text-xs font-bold shadow cursor-pointer active:scale-95"
+                      >
+                        تأكيد الإغلاق والطباعة
+                      </button>
+                    </div>
+                  </form>
                 </div>
-              )}
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-purple-50/60 p-3 rounded-xl border border-purple-200/80">
-                <div>
-                  <label className="block text-xs font-bold text-purple-950 mb-1">
-                    إجمالي مبيعات مكن فوري / الكروت (اختياري)
-                  </label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={fawrySalesTotalInput}
-                    onChange={(e) => setFawrySalesTotalInput(e.target.value)}
-                    placeholder="0"
-                    className="w-full rounded-xl border border-purple-200 bg-white p-2.5 text-sm font-mono text-slate-900 focus:border-purple-600 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-purple-950 mb-1">
-                    صافي ربح فوري / الكروت (اختياري - يضاف للدرج)
-                  </label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={fawryNetProfitInput}
-                    onChange={(e) => setFawryNetProfitInput(e.target.value)}
-                    placeholder="0"
-                    className="w-full rounded-xl border border-purple-200 bg-white p-2.5 text-sm font-mono text-slate-900 focus:border-purple-600 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">ملاحظات التقفيل</label>
-                <textarea
-                  rows={2}
-                  value={closingNotes}
-                  onChange={(e) => setClosingNotes(e.target.value)}
-                  placeholder="أي ملاحظات حول العجز أو النثريات..."
-                  className="w-full rounded-xl border border-slate-300 p-2 text-xs focus:border-red-600 focus:outline-none"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t">
-                <button
-                  type="button"
-                  onClick={() => setShowCloseModal(false)}
-                  className="rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100"
-                >
-                  إلغاء
-                </button>
-                <button
-                  type="submit"
-                  className="rounded-xl bg-red-600 hover:bg-red-700 text-white px-5 py-2 text-xs font-bold shadow"
-                >
-                  تأكيد الإغلاق والطباعة
-                </button>
-              </div>
-            </form>
+              );
+            })()}
           </div>
         </div>
       )}

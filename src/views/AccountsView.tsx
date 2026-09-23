@@ -20,15 +20,19 @@ import {
   ArrowUpRight,
   ArrowDownLeft,
   Printer,
+  Zap,
+  Wallet,
+  TrendingUp,
 } from 'lucide-react';
 import { db } from '../db';
 import { useModal } from '../context/ModalContext';
-import type { Customer, Supplier, DebtTransaction } from '../types';
+import type { Customer, Supplier, DebtTransaction, StoreWallet } from '../types';
 
 export const AccountsView: React.FC = () => {
   const { showAlert, showConfirm, showToast } = useModal();
   const customers = useLiveQuery(() => db.customers.toArray()) || [];
   const suppliers = useLiveQuery(() => db.suppliers.toArray()) || [];
+  const wallets = useLiveQuery(() => db.wallets.filter((w) => w.isActive).toArray()) || [];
   const settings = useLiveQuery(() => db.settings.get(1));
   const activeShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
 
@@ -42,10 +46,24 @@ export const AccountsView: React.FC = () => {
   const [phone, setPhone] = useState('');
   const [initialBalance, setInitialBalance] = useState('');
   const [notes, setNotes] = useState('');
+  const [isVipCash, setIsVipCash] = useState(false);
+  const [defaultWalletId, setDefaultWalletId] = useState('');
 
   // Edit Modal
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+
+  // VIP Cash Customer Modal & Operations
+  const [vipCustomer, setVipCustomer] = useState<Customer | null>(null);
+  const [vipActiveSection, setVipActiveSection] = useState<'operations' | 'settlement'>('operations');
+  const [vipOpType, setVipOpType] = useState<'transfer' | 'receive'>('transfer');
+  const [vipWalletId, setVipWalletId] = useState<string>('');
+  const [vipAmount, setVipAmount] = useState<string>('');
+  const [vipCommission, setVipCommission] = useState<string>('');
+  const [isCustomVipComm, setIsCustomVipComm] = useState<boolean>(false);
+  const [vipNotes, setVipNotes] = useState<string>('');
+  const [vipSettleAmount, setVipSettleAmount] = useState<string>('');
+  const [vipSettleNotes, setVipSettleNotes] = useState<string>('');
 
   // Pay Debt Modal
   const [payingCustomer, setPayingCustomer] = useState<Customer | null>(null);
@@ -73,12 +91,71 @@ export const AccountsView: React.FC = () => {
       .sortBy('createdAt');
   }, [viewingLedgerParty?.party.id]) || [];
 
+  // VIP Customer live query & transactions
+  const liveVipCustomer = customers.find((c) => c.id === vipCustomer?.id) || vipCustomer;
+
+  const vipTransactions = useLiveQuery(async () => {
+    if (!vipCustomer) return [];
+    return await db.debtTransactions
+      .where('partyId')
+      .equals(vipCustomer.id)
+      .reverse()
+      .sortBy('createdAt');
+  }, [vipCustomer?.id]) || [];
+
+  const calcVipCommission = (val: number, op: 'transfer' | 'receive') => {
+    if (!val || val <= 0) return 0;
+    const rules = settings?.commissionRules;
+    if (op === 'transfer') {
+      const feePerThousand = rules?.transferFeePerThousand ?? 10;
+      const minFee = rules?.minTransferFee ?? 5;
+      return Math.max(minFee, Math.ceil((val / 1000) * feePerThousand));
+    } else {
+      const feePerThousand = rules?.withdrawFeePerThousand ?? 10;
+      const minFee = rules?.minWithdrawFee ?? 5;
+      return Math.max(minFee, Math.ceil((val / 1000) * feePerThousand));
+    }
+  };
+
+  const handleVipAmountChange = (valStr: string) => {
+    setVipAmount(valStr);
+    if (!isCustomVipComm) {
+      const val = parseFloat(valStr) || 0;
+      const autoFee = calcVipCommission(val, vipOpType);
+      setVipCommission(autoFee > 0 ? autoFee.toString() : '');
+    }
+  };
+
+  const handleVipOpTypeChange = (op: 'transfer' | 'receive') => {
+    setVipOpType(op);
+    if (!isCustomVipComm) {
+      const val = parseFloat(vipAmount) || 0;
+      const autoFee = calcVipCommission(val, op);
+      setVipCommission(autoFee > 0 ? autoFee.toString() : '');
+    }
+  };
+
+  const openVipModal = (customer: Customer) => {
+    setVipCustomer(customer);
+    setVipActiveSection('operations');
+    setVipOpType('transfer');
+    setVipAmount('');
+    setVipCommission('');
+    setIsCustomVipComm(false);
+    setVipNotes('');
+    setVipSettleAmount(customer.vipBalance ? Math.abs(customer.vipBalance).toString() : '');
+    setVipSettleNotes('');
+    setVipWalletId(customer.defaultWalletId || (wallets[0]?.id ?? ''));
+  };
+
   const resetForm = () => {
     setName('');
     setCompany('');
     setPhone('');
     setInitialBalance('');
     setNotes('');
+    setIsVipCash(false);
+    setDefaultWalletId('');
   };
 
   const handleAdd = async (e: React.FormEvent) => {
@@ -97,6 +174,13 @@ export const AccountsView: React.FC = () => {
         phone: phone.trim(),
         totalDebt: initBal,
         totalPaid: 0,
+        isVipCash: isVipCash,
+        defaultWalletId: isVipCash && defaultWalletId ? defaultWalletId : undefined,
+        vipBalance: 0,
+        vipTotalSent: 0,
+        vipTotalReceived: 0,
+        vipTotalProfit: 0,
+        vipUnsettledProfit: 0,
         notes: notes.trim() || undefined,
         createdAt: new Date().toISOString(),
       };
@@ -151,6 +235,219 @@ export const AccountsView: React.FC = () => {
     setShowAddModal(false);
     resetForm();
     showToast(`تمت إضافة ${activeTab === 'customers' ? 'العميل' : 'المورد'} بنجاح`);
+  };
+
+  const handleExecuteVipOp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!liveVipCustomer) return;
+    if (!activeShift) {
+      showAlert('يرجى فتح وردية أولاً لتنفيذ معاملات كاش المحافظ.', 'وردية مغلقة', 'warning');
+      return;
+    }
+    const numAmount = parseFloat(vipAmount);
+    if (!numAmount || numAmount <= 0) {
+      showAlert('يرجى إدخال مبلغ صحيح أكبر من الصفر.', 'مبلغ غير صحيح', 'warning');
+      return;
+    }
+    const numCommission = parseFloat(vipCommission) || 0;
+    const selectedWallet = wallets.find((w) => w.id === vipWalletId);
+    if (!selectedWallet) {
+      showAlert('يرجى اختيار المحفظة المراد التعامل معها.', 'محفظة غير محددة', 'warning');
+      return;
+    }
+
+    if (vipOpType === 'transfer') {
+      if (selectedWallet.balance < numAmount) {
+        const proceed = await showConfirm(
+          `رصيد المحفظة الحالي (${selectedWallet.balance.toLocaleString()} ${cur}) أقل من المبلغ المطلوب تحويله (${numAmount.toLocaleString()} ${cur}). هل تريد المتابعة على أية حال؟`,
+          'رصيد المحفظة منخفض',
+          { confirmText: 'متابعة التحويل', cancelText: 'إلغاء', danger: true }
+        );
+        if (!proceed) return;
+      }
+
+      const prevBal = liveVipCustomer.vipBalance || 0;
+      const newBal = prevBal + numAmount + numCommission;
+      const newTotalSent = (liveVipCustomer.vipTotalSent || 0) + numAmount;
+      const newTotalProfit = (liveVipCustomer.vipTotalProfit || 0) + numCommission;
+      const newUnsettledProfit = (liveVipCustomer.vipUnsettledProfit || 0) + numCommission;
+
+      await db.transaction('rw', [db.wallets, db.walletTransactions, db.customers, db.debtTransactions], async () => {
+        await db.wallets.update(selectedWallet.id, { balance: selectedWallet.balance - numAmount });
+
+        await db.walletTransactions.add({
+          id: `wtx_${Date.now()}`,
+          walletId: selectedWallet.id,
+          walletName: selectedWallet.name,
+          type: 'cash_out_to_customer',
+          amount: numAmount,
+          commission: numCommission,
+          networkFee: 0,
+          netProfit: numCommission,
+          customerPhone: liveVipCustomer.phone,
+          customerName: liveVipCustomer.name,
+          shiftId: activeShift.id,
+          cashierName: activeShift.cashierName || 'المدير',
+          notes: `تحويل لعميل كاش مميز (${liveVipCustomer.name}) - ${vipNotes || 'أجندة جارية'}`.trim(),
+          createdAt: new Date().toISOString(),
+        });
+
+        await db.customers.update(liveVipCustomer.id, {
+          vipBalance: newBal,
+          vipTotalSent: newTotalSent,
+          vipTotalProfit: newTotalProfit,
+          vipUnsettledProfit: newUnsettledProfit,
+        });
+
+        await db.debtTransactions.add({
+          id: `dt_${Date.now()}`,
+          partyType: 'customer',
+          partyId: liveVipCustomer.id,
+          partyName: liveVipCustomer.name,
+          shiftId: activeShift.id,
+          type: 'vip_cash_transfer',
+          amount: numAmount,
+          commission: numCommission,
+          walletId: selectedWallet.id,
+          walletName: selectedWallet.name,
+          balanceBefore: prevBal,
+          balanceAfter: newBal,
+          notes: vipNotes.trim() || `تحويل كاش من محفظة [${selectedWallet.name}] - عمولة: ${numCommission} ${cur}`,
+          recordedBy: activeShift.cashierName || 'المدير',
+          createdAt: new Date().toISOString(),
+        });
+      });
+
+      showToast(`⚡ تم تحويل ${numAmount.toLocaleString()} ${cur} بنجاح إلى حساب ${liveVipCustomer.name}`);
+    } else {
+      const prevBal = liveVipCustomer.vipBalance || 0;
+      const newBal = prevBal - (numAmount - numCommission);
+      const newTotalReceived = (liveVipCustomer.vipTotalReceived || 0) + numAmount;
+      const newTotalProfit = (liveVipCustomer.vipTotalProfit || 0) + numCommission;
+      const newUnsettledProfit = (liveVipCustomer.vipUnsettledProfit || 0) + numCommission;
+
+      await db.transaction('rw', [db.wallets, db.walletTransactions, db.customers, db.debtTransactions], async () => {
+        await db.wallets.update(selectedWallet.id, { balance: selectedWallet.balance + numAmount });
+
+        await db.walletTransactions.add({
+          id: `wtx_${Date.now()}`,
+          walletId: selectedWallet.id,
+          walletName: selectedWallet.name,
+          type: 'cash_in_from_customer',
+          amount: numAmount,
+          commission: numCommission,
+          networkFee: 0,
+          netProfit: numCommission,
+          customerPhone: liveVipCustomer.phone,
+          customerName: liveVipCustomer.name,
+          shiftId: activeShift.id,
+          cashierName: activeShift.cashierName || 'المدير',
+          notes: `استلام من عميل كاش مميز (${liveVipCustomer.name}) - ${vipNotes || 'أجندة جارية'}`.trim(),
+          createdAt: new Date().toISOString(),
+        });
+
+        await db.customers.update(liveVipCustomer.id, {
+          vipBalance: newBal,
+          vipTotalReceived: newTotalReceived,
+          vipTotalProfit: newTotalProfit,
+          vipUnsettledProfit: newUnsettledProfit,
+        });
+
+        await db.debtTransactions.add({
+          id: `dt_${Date.now()}`,
+          partyType: 'customer',
+          partyId: liveVipCustomer.id,
+          partyName: liveVipCustomer.name,
+          shiftId: activeShift.id,
+          type: 'vip_cash_receive',
+          amount: numAmount,
+          commission: numCommission,
+          walletId: selectedWallet.id,
+          walletName: selectedWallet.name,
+          balanceBefore: prevBal,
+          balanceAfter: newBal,
+          notes: vipNotes.trim() || `استلام كاش على محفظة [${selectedWallet.name}] - عمولة: ${numCommission} ${cur}`,
+          recordedBy: activeShift.cashierName || 'المدير',
+          createdAt: new Date().toISOString(),
+        });
+      });
+
+      showToast(`⚡ تم استلام ${numAmount.toLocaleString()} ${cur} بنجاح وقيدها في حساب ${liveVipCustomer.name}`);
+    }
+
+    setVipAmount('');
+    setVipCommission('');
+    setIsCustomVipComm(false);
+    setVipNotes('');
+  };
+
+  const handleSettleVipAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!liveVipCustomer) return;
+    if (!activeShift) {
+      showAlert('يرجى فتح وردية أولاً لتسوية الحساب وربطه بدرج الكاش والأرباح.', 'وردية مغلقة', 'warning');
+      return;
+    }
+    const settleAmt = parseFloat(vipSettleAmount);
+    if (!settleAmt || settleAmt <= 0) {
+      showAlert('يرجى إدخال مبلغ تسوية صحيح أكبر من الصفر.', 'مبلغ غير صحيح', 'warning');
+      return;
+    }
+
+    const currentBal = liveVipCustomer.vipBalance || 0;
+    if (currentBal === 0) {
+      showAlert('حساب العميل متزن وخالص بالفعل (0 ج). لا توجد مبالغ لتسويتها.', 'الحساب متزن', 'info');
+      return;
+    }
+
+    const customerOwesStore = currentBal > 0;
+    const maxSettle = Math.abs(currentBal);
+    if (settleAmt > maxSettle) {
+      showAlert(`مبلغ التسوية (${settleAmt.toLocaleString()} ${cur}) أكبر من إجمالي الرصيد المستحق (${maxSettle.toLocaleString()} ${cur}).`, 'مبلغ زائد', 'warning');
+      return;
+    }
+
+    const newBal = customerOwesStore ? currentBal - settleAmt : currentBal + settleAmt;
+    const unsettledProfit = liveVipCustomer.vipUnsettledProfit || 0;
+
+    await db.transaction('rw', [db.shifts, db.customers, db.debtTransactions], async () => {
+      const shift = await db.shifts.get(activeShift.id);
+      if (shift) {
+        const cashDelta = customerOwesStore ? settleAmt : -settleAmt;
+        await db.shifts.update(activeShift.id, {
+          closingCashSystem: shift.closingCashSystem + cashDelta,
+          totalCommissions: (shift.totalCommissions || 0) + unsettledProfit,
+        });
+      }
+
+      await db.customers.update(liveVipCustomer.id, {
+        vipBalance: newBal,
+        vipUnsettledProfit: 0,
+      });
+
+      await db.debtTransactions.add({
+        id: `dt_${Date.now()}`,
+        partyType: 'customer',
+        partyId: liveVipCustomer.id,
+        partyName: liveVipCustomer.name,
+        shiftId: activeShift.id,
+        type: 'vip_cash_settlement',
+        amount: settleAmt,
+        commission: unsettledProfit,
+        balanceBefore: currentBal,
+        balanceAfter: newBal,
+        notes: vipSettleNotes.trim() || (customerOwesStore
+          ? `تسوية حساب مع درج الوردية (توريد كاش +${settleAmt.toLocaleString()} ${cur} وتسميع أرباح +${unsettledProfit.toLocaleString()} ${cur})`
+          : `تسوية حساب مع درج الوردية (صرف كاش للعميل -${settleAmt.toLocaleString()} ${cur} وتسميع أرباح +${unsettledProfit.toLocaleString()} ${cur})`),
+        recordedBy: activeShift.cashierName || 'المدير',
+        createdAt: new Date().toISOString(),
+      });
+    });
+
+    showToast(`✅ تمت تسوية مبلغ ${settleAmt.toLocaleString()} ${cur} بنجاح وربطه بالدرج وتسميع الأرباح!`);
+    setVipSettleAmount('');
+    setVipSettleNotes('');
+    setVipActiveSection('operations');
   };
 
   const handlePayCustomer = async (e: React.FormEvent) => {
@@ -359,6 +656,48 @@ export const AccountsView: React.FC = () => {
         </div>
       </div>
 
+      {activeTab === 'customers' && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-3.5 space-y-2.5">
+          <label className="flex items-center gap-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={isVipCash}
+              onChange={(e) => {
+                setIsVipCash(e.target.checked);
+                if (e.target.checked && !defaultWalletId && wallets.length > 0) {
+                  setDefaultWalletId(wallets[0].id);
+                }
+              }}
+              className="h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+            />
+            <div className="flex items-center gap-1.5 font-bold text-xs text-amber-950">
+              <Zap className="h-4 w-4 text-amber-600 fill-amber-500" />
+              <span>عميل كاش مميز (محافظ إلكترونية وأجندة كاش)</span>
+            </div>
+          </label>
+
+          {isVipCash && (
+            <div>
+              <label className="block text-[11px] font-bold text-amber-900 mb-1">
+                المحفظة الافتراضية للتعامل
+              </label>
+              <select
+                value={defaultWalletId}
+                onChange={(e) => setDefaultWalletId(e.target.value)}
+                className="w-full rounded-xl border border-amber-200 bg-white p-2.5 text-xs font-bold text-slate-800 focus:border-amber-500 focus:outline-none"
+              >
+                <option value="">بدون محفظة افتراضية (اختيار يدوي عند العملية)</option>
+                {wallets.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name} ({w.balance.toLocaleString()} {cur})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
+
       <div>
         <label className="block text-xs font-bold text-slate-700 mb-1.5">ملاحظات</label>
         <textarea
@@ -493,8 +832,40 @@ export const AccountsView: React.FC = () => {
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <p className="font-black text-slate-900 text-sm">{customer.name}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-black text-slate-900 text-sm">{customer.name}</p>
+                      {customer.isVipCash && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-black border border-amber-200">
+                          <Zap className="h-3 w-3 fill-amber-500 text-amber-500" />
+                          عميل كاش مميز
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-slate-400 font-mono mt-0.5">{customer.phone}</p>
+                    {customer.isVipCash && (
+                      <div className="mt-1 flex items-center gap-2 flex-wrap">
+                        <span className={`text-[11px] font-mono font-black px-2 py-0.5 rounded-md ${
+                          (customer.vipBalance || 0) > 0
+                            ? 'bg-rose-50 text-rose-700 border border-rose-100'
+                            : (customer.vipBalance || 0) < 0
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                            : 'bg-slate-100 text-slate-600'
+                        }`}>
+                          حساب الكاش:{' '}
+                          {(customer.vipBalance || 0) > 0
+                            ? `عليه ${(customer.vipBalance || 0).toLocaleString()} ${cur}`
+                            : (customer.vipBalance || 0) < 0
+                            ? `له ${Math.abs(customer.vipBalance || 0).toLocaleString()} ${cur}`
+                            : `خالص (0)`}
+                        </span>
+                        {customer.defaultWalletId && (
+                          <span className="text-[10px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md font-medium">
+                            المحفظة:{' '}
+                            {wallets.find((w) => w.id === customer.defaultWalletId)?.name || 'محددة'}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {customer.notes && <p className="text-[11px] text-slate-400 mt-1 truncate">{customer.notes}</p>}
                   </div>
 
@@ -511,7 +882,17 @@ export const AccountsView: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-1.5 shrink-0 max-w-[280px] justify-end">
+                  <div className="flex flex-wrap items-center gap-1.5 shrink-0 max-w-[320px] justify-end">
+                    {customer.isVipCash && (
+                      <button
+                        onClick={() => openVipModal(customer)}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-[11px] font-black shadow-xs transition cursor-pointer"
+                        title="فتح كاش وأجندة العميل المميز"
+                      >
+                        <Zap className="h-3.5 w-3.5 fill-white" />
+                        <span>أجندة الكاش</span>
+                      </button>
+                    )}
                     <button
                       onClick={() => setViewingLedgerParty({ type: 'customer', party: customer })}
                       className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-purple-50 text-purple-700 text-[11px] font-bold hover:bg-purple-100 transition cursor-pointer"
@@ -720,9 +1101,12 @@ export const AccountsView: React.FC = () => {
                 await db.customers.update(editingCustomer.id, {
                   name: editingCustomer.name,
                   phone: editingCustomer.phone,
+                  isVipCash: editingCustomer.isVipCash,
+                  defaultWalletId: editingCustomer.isVipCash ? editingCustomer.defaultWalletId : undefined,
                   notes: editingCustomer.notes,
                 });
                 setEditingCustomer(null);
+                showToast('تم حفظ التعديلات بنجاح');
               }}
               className="p-6 space-y-4"
             >
@@ -746,6 +1130,53 @@ export const AccountsView: React.FC = () => {
                   required
                 />
               </div>
+
+              <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-3.5 space-y-2.5">
+                <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={editingCustomer.isVipCash || false}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setEditingCustomer((p) =>
+                        p ? {
+                          ...p,
+                          isVipCash: checked,
+                          defaultWalletId: checked && !p.defaultWalletId && wallets.length > 0 ? wallets[0].id : p.defaultWalletId,
+                        } : null
+                      );
+                    }}
+                    className="h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                  />
+                  <div className="flex items-center gap-1.5 font-bold text-xs text-amber-950">
+                    <Zap className="h-4 w-4 text-amber-600 fill-amber-500" />
+                    <span>عميل كاش مميز (محافظ إلكترونية وأجندة كاش)</span>
+                  </div>
+                </label>
+
+                {editingCustomer.isVipCash && (
+                  <div>
+                    <label className="block text-[11px] font-bold text-amber-900 mb-1">
+                      المحفظة الافتراضية
+                    </label>
+                    <select
+                      value={editingCustomer.defaultWalletId || ''}
+                      onChange={(e) =>
+                        setEditingCustomer((p) => (p ? { ...p, defaultWalletId: e.target.value } : null))
+                      }
+                      className="w-full rounded-xl border border-amber-200 bg-white p-2.5 text-xs font-bold text-slate-800 focus:border-amber-500 focus:outline-none"
+                    >
+                      <option value="">بدون محفظة افتراضية</option>
+                      {wallets.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.name} ({w.balance.toLocaleString()} {cur})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">ملاحظات</label>
                 <textarea
@@ -1193,6 +1624,470 @@ export const AccountsView: React.FC = () => {
             <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end shrink-0">
               <button
                 onClick={() => setViewingLedgerParty(null)}
+                className="px-6 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold transition cursor-pointer"
+              >
+                إغلاق
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL: VIP Cash Customer Console & Agenda */}
+      {vipCustomer && liveVipCustomer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-4xl max-h-[92vh] rounded-3xl bg-white shadow-2xl flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-amber-600 via-amber-700 to-orange-600 text-white shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-2xl bg-white/20 flex items-center justify-center">
+                  <Zap className="h-6 w-6 text-white fill-white" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-display font-bold text-lg">
+                      أجندة وكاش العميل المميز: {liveVipCustomer.name}
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full bg-white/20 text-white text-[11px] font-bold">
+                      عميل كاش مميز
+                    </span>
+                  </div>
+                  <p className="text-xs text-amber-200 font-mono mt-0.5">
+                    {liveVipCustomer.phone}
+                    {liveVipCustomer.defaultWalletId && (
+                      <span className="mr-3 text-amber-100 font-sans">
+                        • المحفظة الافتراضية: {wallets.find((w) => w.id === liveVipCustomer.defaultWalletId)?.name || 'غير محددة'}
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => window.print()}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-bold transition cursor-pointer"
+                  title="طباعة كشف حساب كاش العميل"
+                >
+                  <Printer className="h-4 w-4" />
+                  <span>طباعة الكشف</span>
+                </button>
+                <button
+                  onClick={() => setVipCustomer(null)}
+                  className="p-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white transition cursor-pointer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Content Container */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+              {/* Analytics Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-3.5">
+                  <div className="flex items-center justify-between text-amber-700">
+                    <span className="text-[11px] font-bold">إجمالي التحويلات (صادر)</span>
+                    <ArrowUpRight className="h-4 w-4" />
+                  </div>
+                  <p className="text-lg font-black font-mono text-slate-900 mt-1">
+                    {(liveVipCustomer.vipTotalSent || 0).toLocaleString()} <span className="text-xs text-slate-500 font-normal">{cur}</span>
+                  </p>
+                </div>
+
+                <div className="bg-blue-50/70 border border-blue-200/80 rounded-2xl p-3.5">
+                  <div className="flex items-center justify-between text-blue-700">
+                    <span className="text-[11px] font-bold">إجمالي الاستلامات (وارد)</span>
+                    <ArrowDownLeft className="h-4 w-4" />
+                  </div>
+                  <p className="text-lg font-black font-mono text-slate-900 mt-1">
+                    {(liveVipCustomer.vipTotalReceived || 0).toLocaleString()} <span className="text-xs text-slate-500 font-normal">{cur}</span>
+                  </p>
+                </div>
+
+                <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-3.5">
+                  <div className="flex items-center justify-between text-emerald-700">
+                    <span className="text-[11px] font-bold">أرباح وعمولات المحل</span>
+                    <TrendingUp className="h-4 w-4" />
+                  </div>
+                  <p className="text-lg font-black font-mono text-emerald-700 mt-1">
+                    +{(liveVipCustomer.vipTotalProfit || 0).toLocaleString()} <span className="text-xs text-emerald-600 font-normal">{cur}</span>
+                  </p>
+                  {(liveVipCustomer.vipUnsettledProfit || 0) > 0 && (
+                    <p className="text-[10px] text-amber-700 font-bold mt-0.5">
+                      قيد التقفيل: {(liveVipCustomer.vipUnsettledProfit || 0).toLocaleString()} {cur}
+                    </p>
+                  )}
+                </div>
+
+                <div className={`border rounded-2xl p-3.5 ${
+                  (liveVipCustomer.vipBalance || 0) > 0
+                    ? 'bg-rose-50/80 border-rose-200 text-rose-800'
+                    : (liveVipCustomer.vipBalance || 0) < 0
+                    ? 'bg-emerald-50/80 border-emerald-200 text-emerald-800'
+                    : 'bg-slate-50 border-slate-200 text-slate-800'
+                }`}>
+                  <span className="text-[11px] font-bold block">موقف رصيد الكاش الجاري</span>
+                  <p className="text-lg font-black font-mono mt-1">
+                    {(liveVipCustomer.vipBalance || 0) > 0
+                      ? `عليه ${(liveVipCustomer.vipBalance || 0).toLocaleString()} ${cur}`
+                      : (liveVipCustomer.vipBalance || 0) < 0
+                      ? `له ${Math.abs(liveVipCustomer.vipBalance || 0).toLocaleString()} ${cur}`
+                      : `خالص (0 ${cur})`}
+                  </p>
+                  <p className="text-[10px] font-semibold opacity-75 mt-0.5">
+                    {(liveVipCustomer.vipBalance || 0) > 0
+                      ? 'مطلوب تحصيله من العميل'
+                      : (liveVipCustomer.vipBalance || 0) < 0
+                      ? 'مستحق صرفه للعميل'
+                      : 'الحساب متزن تماماً'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Sub-Tabs: Operations vs Settlement */}
+              <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+                <button
+                  type="button"
+                  onClick={() => setVipActiveSection('operations')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                    vipActiveSection === 'operations'
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <Zap className="h-4 w-4" />
+                  <span>معاملة كاش سريعة (تحويل / استلام)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVipActiveSection('settlement');
+                    setVipSettleAmount(liveVipCustomer.vipBalance ? Math.abs(liveVipCustomer.vipBalance).toString() : '');
+                  }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                    vipActiveSection === 'settlement'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <DollarSign className="h-4 w-4" />
+                  <span>تقفيل وتسوية الحساب مع الدرج</span>
+                </button>
+              </div>
+
+              {/* SECTION 1: OPERATIONS */}
+              {vipActiveSection === 'operations' && (
+                <div className="bg-slate-50 border border-slate-200 rounded-3xl p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <button
+                      type="button"
+                      onClick={() => handleVipOpTypeChange('transfer')}
+                      className={`flex-1 py-2.5 rounded-xl text-xs font-black transition cursor-pointer flex items-center justify-center gap-2 ${
+                        vipOpType === 'transfer'
+                          ? 'bg-rose-600 text-white shadow-sm'
+                          : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      <ArrowUpRight className="h-4 w-4" />
+                      <span>تحويل للعميل (إرسال كاش من محفظة المحل)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleVipOpTypeChange('receive')}
+                      className={`flex-1 py-2.5 rounded-xl text-xs font-black transition cursor-pointer flex items-center justify-center gap-2 ${
+                        vipOpType === 'receive'
+                          ? 'bg-emerald-600 text-white shadow-sm'
+                          : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      <ArrowDownLeft className="h-4 w-4" />
+                      <span>استلام من العميل (استقبال كاش بمحفظة المحل)</span>
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleExecuteVipOp} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1.5">المحفظة المستخدمة *</label>
+                        <select
+                          value={vipWalletId}
+                          onChange={(e) => setVipWalletId(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-bold text-slate-800 focus:border-amber-500 focus:outline-none"
+                          required
+                        >
+                          {wallets.map((w) => (
+                            <option key={w.id} value={w.id}>
+                              {w.name} (رصيدها: {w.balance.toLocaleString()} {cur})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1.5">مبلغ المعاملة *</label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            step="any"
+                            value={vipAmount}
+                            onChange={(e) => handleVipAmountChange(e.target.value)}
+                            placeholder="0"
+                            className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm font-mono font-black focus:border-amber-500 focus:outline-none text-center"
+                            required
+                            autoFocus
+                          />
+                          <span className="absolute left-3 top-2.5 text-xs font-bold text-slate-400">{cur}</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="text-xs font-bold text-slate-700">العمولة المستحقة</label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsCustomVipComm(!isCustomVipComm);
+                              if (isCustomVipComm) {
+                                const val = parseFloat(vipAmount) || 0;
+                                const autoFee = calcVipCommission(val, vipOpType);
+                                setVipCommission(autoFee > 0 ? autoFee.toString() : '');
+                              }
+                            }}
+                            className="text-[10px] text-amber-700 font-bold hover:underline"
+                          >
+                            {isCustomVipComm ? 'إلغاء التعديل اليدوي' : 'تعديل يدوي'}
+                          </button>
+                        </div>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            step="any"
+                            value={vipCommission}
+                            onChange={(e) => {
+                              setVipCommission(e.target.value);
+                              setIsCustomVipComm(true);
+                            }}
+                            placeholder="0"
+                            className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm font-mono font-black focus:border-amber-500 focus:outline-none text-center text-amber-700"
+                          />
+                          <span className="absolute left-3 top-2.5 text-xs font-bold text-slate-400">{cur}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">ملاحظات المعاملة (اختياري)</label>
+                      <input
+                        type="text"
+                        value={vipNotes}
+                        onChange={(e) => setVipNotes(e.target.value)}
+                        placeholder="مثال: تحويل دفعة لمحل كذا، رقم المحفظة المحول لها..."
+                        className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs focus:border-amber-500 focus:outline-none"
+                      />
+                    </div>
+
+                    {/* Quick calculation notice */}
+                    {parseFloat(vipAmount) > 0 && (
+                      <div className="p-3 rounded-2xl bg-amber-100/70 border border-amber-200 text-xs text-amber-950 font-medium">
+                        {vipOpType === 'transfer' ? (
+                          <span>
+                            📌 سيتم خصم <b>{parseFloat(vipAmount).toLocaleString()} {cur}</b> من المحفظة، ويزيد حساب دين العميل بمبلغ{' '}
+                            <b>{((parseFloat(vipAmount) || 0) + (parseFloat(vipCommission) || 0)).toLocaleString()} {cur}</b> شامل العمولة.
+                          </span>
+                        ) : (
+                          <span>
+                            📌 سيتم إضافة <b>{parseFloat(vipAmount).toLocaleString()} {cur}</b> للمحفظة، ويقل حساب دين العميل بمبلغ{' '}
+                            <b>{Math.max(0, (parseFloat(vipAmount) || 0) - (parseFloat(vipCommission) || 0)).toLocaleString()} {cur}</b> بعد خصم العمولة.
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="flex justify-end">
+                      <button
+                        type="submit"
+                        className={`px-6 py-2.5 rounded-xl text-white text-xs font-black shadow-sm transition cursor-pointer active:scale-95 ${
+                          vipOpType === 'transfer' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-700'
+                        }`}
+                      >
+                        {vipOpType === 'transfer' ? 'تأكيد التحويل وقيده بالأجندة' : 'تأكيد الاستلام وقيده بالأجندة'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {/* SECTION 2: SETTLEMENT WITH DRAWER */}
+              {vipActiveSection === 'settlement' && (
+                <div className="bg-emerald-50/50 border border-emerald-200 rounded-3xl p-5 space-y-4">
+                  <div className="bg-white border border-emerald-200 rounded-2xl p-4">
+                    <p className="text-xs font-bold text-slate-700">الموقف الحالي للتسوية مع درج الكاش:</p>
+                    {(liveVipCustomer.vipBalance || 0) > 0 ? (
+                      <p className="text-sm font-semibold text-rose-700 mt-1">
+                        العميل مدين للمحل بمبلغ{' '}
+                        <span className="font-mono font-black text-base">{(liveVipCustomer.vipBalance || 0).toLocaleString()} {cur}</span>.
+                        عند تأكيد التسوية، يدفع العميل المبلغ كاش ويُضاف فوراً لدرج الوردية المفتوحة وتُسجل أرباحه بالوردية.
+                      </p>
+                    ) : (liveVipCustomer.vipBalance || 0) < 0 ? (
+                      <p className="text-sm font-semibold text-emerald-700 mt-1">
+                        المحل مدين للعميل بمبلغ{' '}
+                        <span className="font-mono font-black text-base">{Math.abs(liveVipCustomer.vipBalance || 0).toLocaleString()} {cur}</span>.
+                        عند تأكيد التسوية، يصرف الكاشير المبلغ كاش للعميل من درج الوردية المفتوحة وتُسجل أرباحه بالوردية.
+                      </p>
+                    ) : (
+                      <p className="text-sm font-bold text-slate-600 mt-1">
+                        حساب العميل خالص ومتزن تماماً (0 {cur}). لا توجد مبالغ لتسويتها حالياً.
+                      </p>
+                    )}
+                  </div>
+
+                  <form onSubmit={handleSettleVipAccount} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1.5">مبلغ التسوية المطلوب تقفيله *</label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            step="any"
+                            value={vipSettleAmount}
+                            onChange={(e) => setVipSettleAmount(e.target.value)}
+                            placeholder="0"
+                            max={Math.abs(liveVipCustomer.vipBalance || 0)}
+                            className="w-full rounded-xl border border-emerald-300 bg-white p-3 text-center text-lg font-mono font-black focus:border-emerald-500 focus:outline-none"
+                            required
+                          />
+                          <span className="absolute left-3 top-3 text-xs font-bold text-slate-400">{cur}</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1.5">ملاحظات التسوية (اختياري)</label>
+                        <input
+                          type="text"
+                          value={vipSettleNotes}
+                          onChange={(e) => setVipSettleNotes(e.target.value)}
+                          placeholder="مثال: تصفية حساب اليوم كاش بالكامل..."
+                          className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs focus:border-emerald-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setVipSettleAmount(Math.abs(liveVipCustomer.vipBalance || 0).toString())}
+                        className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer"
+                      >
+                        تسوية الرصيد بالكامل (100%)
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={!liveVipCustomer.vipBalance || liveVipCustomer.vipBalance === 0}
+                        className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-sm transition cursor-pointer active:scale-95 disabled:opacity-50"
+                      >
+                        تأكيد التسوية وربطها بالدرج والأرباح
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {/* Transactions History Table */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-sm text-slate-800 flex items-center gap-1.5">
+                    <BookOpen className="h-4 w-4 text-amber-600" />
+                    <span>سجل وأجندة حركات العميل المميز ({vipTransactions.length})</span>
+                  </h4>
+                </div>
+
+                {vipTransactions.length === 0 ? (
+                  <div className="py-12 text-center text-slate-400 bg-slate-50 rounded-2xl border border-slate-100 text-xs">
+                    لا توجد حركات كاش مسجلة لهذا العميل بعد.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                    <table className="w-full text-right text-xs">
+                      <thead className="bg-slate-100 text-slate-600 font-bold border-b border-slate-200">
+                        <tr>
+                          <th className="py-2.5 px-3">التاريخ والوقت</th>
+                          <th className="py-2.5 px-3">نوع الحركة</th>
+                          <th className="py-2.5 px-3">المبلغ</th>
+                          <th className="py-2.5 px-3">العمولة</th>
+                          <th className="py-2.5 px-3">المحفظة</th>
+                          <th className="py-2.5 px-3">الرصيد (قبل ➔ بعد)</th>
+                          <th className="py-2.5 px-3">البيان وملاحظات</th>
+                          <th className="py-2.5 px-3">المسؤول</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {vipTransactions.map((tx) => {
+                          const isTransfer = tx.type === 'vip_cash_transfer';
+                          const isReceive = tx.type === 'vip_cash_receive';
+                          const isSettle = tx.type === 'vip_cash_settlement';
+                          const dateStr = new Date(tx.createdAt).toLocaleString('ar-EG', {
+                            dateStyle: 'short',
+                            timeStyle: 'short',
+                          });
+                          return (
+                            <tr key={tx.id} className="hover:bg-slate-50 transition">
+                              <td className="py-3 px-3 font-mono text-slate-500 whitespace-nowrap">{dateStr}</td>
+                              <td className="py-3 px-3">
+                                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold text-[10px] ${
+                                  isTransfer
+                                    ? 'bg-rose-100 text-rose-800'
+                                    : isReceive
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : isSettle
+                                    ? 'bg-purple-100 text-purple-800'
+                                    : 'bg-slate-100 text-slate-800'
+                                }`}>
+                                  {isTransfer && <ArrowUpRight className="h-3 w-3" />}
+                                  {isReceive && <ArrowDownLeft className="h-3 w-3" />}
+                                  {isSettle && <DollarSign className="h-3 w-3" />}
+                                  {isTransfer
+                                    ? 'تحويل كاش (إرسال)'
+                                    : isReceive
+                                    ? 'استلام كاش (استقبال)'
+                                    : isSettle
+                                    ? 'تسوية مع الدرج'
+                                    : tx.type === 'payment'
+                                    ? 'سداد دفعة'
+                                    : 'زيادة دين'}
+                                </span>
+                              </td>
+                              <td className={`py-3 px-3 font-mono font-black text-sm ${
+                                isTransfer ? 'text-rose-600' : isReceive ? 'text-emerald-600' : 'text-purple-600'
+                              }`}>
+                                {tx.amount.toLocaleString()} {cur}
+                              </td>
+                              <td className="py-3 px-3 font-mono font-bold text-amber-700">
+                                {tx.commission ? `+${tx.commission.toLocaleString()} ${cur}` : '—'}
+                              </td>
+                              <td className="py-3 px-3 text-slate-600 font-medium">
+                                {tx.walletName || '—'}
+                              </td>
+                              <td className="py-3 px-3 font-mono text-slate-500 text-[11px] whitespace-nowrap">
+                                {tx.balanceBefore.toLocaleString()} ➔ {tx.balanceAfter.toLocaleString()}
+                              </td>
+                              <td className="py-3 px-3 text-slate-700 font-medium max-w-xs truncate" title={tx.notes}>
+                                {tx.notes || '—'}
+                              </td>
+                              <td className="py-3 px-3 text-slate-400 font-semibold">{tx.recordedBy}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end shrink-0">
+              <button
+                onClick={() => setVipCustomer(null)}
                 className="px-6 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold transition cursor-pointer"
               >
                 إغلاق
