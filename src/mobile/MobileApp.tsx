@@ -53,7 +53,7 @@ export function MobileApp({ onSwitchToDesktop }: MobileAppProps) {
       />
 
       {/* ── Dynamic Content Container ──────────────────────────── */}
-      <main className="flex-1 overflow-y-auto px-4 py-3 overscroll-y-contain">
+      <main className="flex-1 overflow-y-auto px-4 pt-3 pb-28 sm:pb-32 overscroll-y-contain">
         {activeTab === 'pulse' && (
           <MobilePulseView data={liveData} onNavigateTab={setActiveTab} />
         )}
