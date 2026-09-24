@@ -62,12 +62,14 @@ export const PrintModal: React.FC = () => {
 
   const handleExecutePrint = () => {
     systemLogger.logPrinter({
-      message: 'تنفيذ أمر الطباعة وحفظ لقطة شاشة للفاتورة',
+      message: 'تنفيذ أمر الطباعة',
       docType: type,
       printerName: settings.paperSize,
     });
-    // Concurrently trigger snapshot saving to invoice-previews/
-    captureAndSaveSnapshot();
+    // Fire-and-forget non-blocking snapshot capture
+    setTimeout(() => {
+      captureAndSaveSnapshot().catch(() => {});
+    }, 200);
     window.print();
   };
 

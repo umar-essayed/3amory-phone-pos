@@ -340,15 +340,6 @@ export const PosView: React.FC<{
       confetti({ particleCount: 80, spread: 60, origin: { y: 0.7 } });
     } catch {}
 
-    // Trigger Print
-    if (settings && settings.autoPrintReceipt) {
-      triggerPrint({
-        type: 'sale_receipt',
-        invoice: newInvoice,
-        settings,
-      });
-    }
-
     showToast(`تمت عملية البيع بنجاح! رقم الفاتورة #${invoiceNum}`, 'success');
     setCartItems([]);
     setDiscount('0');
@@ -436,14 +427,6 @@ export const PosView: React.FC<{
     try {
       confetti({ particleCount: 70, spread: 50, origin: { y: 0.7 } });
     } catch {}
-
-    if (settings && settings.autoPrintReceipt) {
-      triggerPrint({
-        type: 'sale_receipt',
-        invoice: quickInvoice,
-        settings,
-      });
-    }
 
     showToast(`⚡ تم إتمام البيع السريع (كاش فوري) بقيمة ${totalAmount.toLocaleString()} ج.م بنجاح!`, 'success');
     setCartItems([]);

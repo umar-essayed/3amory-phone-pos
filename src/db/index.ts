@@ -86,7 +86,7 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   maintenanceTerms: 'المحل غير مسؤول عن الأجهزة التي يمر على إصلاحها أكثر من 30 يوماً دون استلام.',
   currency: 'ج.م',
   paperSize: '80mm',
-  autoPrintReceipt: true,
+  autoPrintReceipt: false,
   showImeiOnReceipt: true,
   selectedPrinter: '',
   silentPrintEnabled: false,
@@ -151,6 +151,9 @@ async function doInitializeDatabase() {
       }
       if (!existingSettings.commissionRules) {
         updates.commissionRules = DEFAULT_SETTINGS.commissionRules;
+      }
+      if (existingSettings.autoPrintReceipt) {
+        updates.autoPrintReceipt = false;
       }
       if (Object.keys(updates).length > 0) {
         await db.settings.update(1, updates);

@@ -214,31 +214,6 @@ export const ReturnInvoiceModal: React.FC<ReturnInvoiceModalProps> = ({
 
       showToast(`تم إتمام المرتجع واسترداد ${calculatedRefundAmount.toLocaleString()} ج.م بنجاح!`);
 
-      // Ask to print Return Receipt
-      if (settings) {
-        triggerPrint({
-          type: 'return_receipt',
-          invoice: {
-            ...invoice,
-            status: isFullInvoiceReturn ? 'returned' : 'partially_returned',
-            returnedAmount: calculatedRefundAmount,
-            returnReason: finalReason,
-            returnedAt: new Date().toISOString(),
-            items: selectedItemsToReturn.map((item) => ({
-              itemId: item.itemId,
-              type: item.type,
-              name: item.name,
-              imei: item.imei,
-              quantity: item.returnQty,
-              unitPrice: item.unitPrice,
-              totalPrice: item.returnQty * item.unitPrice,
-              costPrice: 0,
-            })),
-          },
-          settings,
-        });
-      }
-
       if (onSuccess) onSuccess();
       onClose();
     } catch (err: any) {

@@ -376,22 +376,42 @@ function createWindow() {
       const targetDevice = options.deviceName || 'Default';
       appendToLog(printerLogFile, `Initiating native silent print job to device: ${targetDevice}`, 'INFO');
 
-      mainWindow.webContents.print(
-        {
-          silent: true,
-          printBackground: true,
-          deviceName: options.deviceName || '',
-          margins: { marginType: 'none' },
-        },
-        (success, errorType) => {
-          if (!success) {
-            appendToLog(printerLogFile, `Silent print failed on device [${targetDevice}]: ${errorType}`, 'FAIL');
-          } else {
-            appendToLog(printerLogFile, `Silent print successfully dispatched to device [${targetDevice}]`, 'SUCCESS');
-          }
-          resolve(success);
+      let finished = false;
+      const timer = setTimeout(() => {
+        if (!finished) {
+          finished = true;
+          appendToLog(printerLogFile, `Silent print timed out (3000ms) on device [${targetDevice}]`, 'WARN');
+          resolve(false);
         }
-      );
+      }, 3000);
+
+      try {
+        mainWindow.webContents.print(
+          {
+            silent: true,
+            printBackground: true,
+            deviceName: options.deviceName || '',
+            margins: { marginType: 'none' },
+          },
+          (success, errorType) => {
+            if (finished) return;
+            finished = true;
+            clearTimeout(timer);
+            if (!success) {
+              appendToLog(printerLogFile, `Silent print failed on device [${targetDevice}]: ${errorType}`, 'FAIL');
+            } else {
+              appendToLog(printerLogFile, `Silent print successfully dispatched to device [${targetDevice}]`, 'SUCCESS');
+            }
+            resolve(success);
+          }
+        );
+      } catch (err) {
+        if (!finished) {
+          finished = true;
+          clearTimeout(timer);
+          resolve(false);
+        }
+      }
     });
   });
 

@@ -92,14 +92,6 @@ export const MaintenanceView: React.FC<{ activeShiftId: string; cashierName: str
 
     await db.repairs.add(newTicket);
 
-    if (settings) {
-      triggerPrint({
-        type: 'repair_ticket',
-        repair: newTicket,
-        settings,
-      });
-    }
-
     setShowNewModal(false);
     resetForm();
   };
