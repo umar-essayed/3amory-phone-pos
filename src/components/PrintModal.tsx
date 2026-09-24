@@ -4,6 +4,17 @@ import { Printer, X, Download, ShieldCheck, Camera, FolderOpen, CheckCircle } fr
 import type { PrintData } from '../services/printer';
 import { systemLogger } from '../services/logger';
 import { getStoreLogo, DEFAULT_LOGO } from '../constants/logo';
+import { DEFAULT_SETTINGS } from '../db';
+
+const safeFormatDate = (d?: string) => {
+  if (!d) return '-';
+  try {
+    const date = new Date(d);
+    return isNaN(date.getTime()) ? '-' : date.toLocaleString('ar-EG');
+  } catch {
+    return '-';
+  }
+};
 
 export const PrintModal: React.FC = () => {
   const [activePrint, setActivePrint] = useState<PrintData | null>(null);
@@ -24,8 +35,9 @@ export const PrintModal: React.FC = () => {
 
   if (!activePrint) return null;
 
-  const { type, invoice, walletTx, repair, phone, shift, accessory, settings } = activePrint;
-  const rollWidth = settings.paperSize === '58mm' ? 'max-w-[58mm]' : 'max-w-[80mm]';
+  const { type, invoice, walletTx, repair, phone, shift, accessory } = activePrint;
+  const settings = { ...DEFAULT_SETTINGS, ...(activePrint.settings || {}) };
+  const rollWidth = (settings.paperSize || '80mm') === '58mm' ? 'max-w-[58mm]' : 'max-w-[80mm]';
   const previewWidth =
     type === 'used_phone_contract'
       ? 'max-w-2xl'
@@ -412,42 +424,42 @@ export const PrintModal: React.FC = () => {
                 </div>
                 <div className="flex justify-between">
                   <span>وقت البداية:</span>
-                  <span>{new Date(shift.startTime).toLocaleString('ar-EG')}</span>
+                  <span>{safeFormatDate(shift.startTime)}</span>
                 </div>
                 {shift.endTime && (
                   <div className="flex justify-between border-b pb-1">
                     <span>وقت الإغلاق:</span>
-                    <span>{new Date(shift.endTime).toLocaleString('ar-EG')}</span>
+                    <span>{safeFormatDate(shift.endTime)}</span>
                   </div>
                 )}
                 <div className="bg-slate-50 p-2 rounded space-y-1 border">
                   <div className="flex justify-between">
                     <span>رصيد الكاش الافتتاحي:</span>
-                    <span>{(shift.openingCash || 0).toLocaleString()} {settings.currency}</span>
+                    <span>{(shift.openingCash || 0).toLocaleString()} {settings.currency || 'ج.م'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>مبيعات الكاش في الوردية:</span>
-                    <span>{(shift.totalSalesCash || 0).toLocaleString()} {settings.currency}</span>
+                    <span>{(shift.totalSalesCash || 0).toLocaleString()} {settings.currency || 'ج.م'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>كاش داخل من تحويلات المحافظ:</span>
-                    <span>{(shift.totalWalletIn || 0).toLocaleString()} {settings.currency}</span>
+                    <span>{(shift.totalWalletIn || 0).toLocaleString()} {settings.currency || 'ج.م'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>كاش خارج لسحوبات العملاء:</span>
-                    <span>-{(shift.totalWalletOut || 0).toLocaleString()} {settings.currency}</span>
+                    <span>-{(shift.totalWalletOut || 0).toLocaleString()} {settings.currency || 'ج.م'}</span>
                   </div>
                   <div className="flex justify-between text-red-600">
                     <span>المصروفات النثرية:</span>
-                    <span>-{(shift.totalExpenses || 0).toLocaleString()} {settings.currency}</span>
+                    <span>-{(shift.totalExpenses || 0).toLocaleString()} {settings.currency || 'ج.م'}</span>
                   </div>
                   <div className="flex justify-between font-bold border-t pt-1">
                     <span>الكاش المفترض بالدرج (السيستم):</span>
-                    <span>{(shift.closingCashSystem || 0).toLocaleString()} {settings.currency}</span>
+                    <span>{(shift.closingCashSystem || 0).toLocaleString()} {settings.currency || 'ج.م'}</span>
                   </div>
                   <div className="flex justify-between font-bold border-t pt-1">
                     <span>الكاش الفعلي المعدود بالدرج:</span>
-                    <span>{(shift.closingCashActual || 0).toLocaleString()} {settings.currency}</span>
+                    <span>{(shift.closingCashActual || 0).toLocaleString()} {settings.currency || 'ج.م'}</span>
                   </div>
                   <div className={`flex justify-between font-black text-sm p-1 rounded ${
                     (shift.cashDifference || 0) === 0
@@ -459,8 +471,8 @@ export const PrintModal: React.FC = () => {
                     <span>الفارق (العجز / الزيادة):</span>
                     <span>
                       {(shift.cashDifference || 0) === 0 && 'مطابق تماماً (0)'}
-                      {(shift.cashDifference || 0) > 0 && `زيادة +${shift.cashDifference} ${settings.currency}`}
-                      {(shift.cashDifference || 0) < 0 && `عجز ${shift.cashDifference} ${settings.currency}`}
+                      {(shift.cashDifference || 0) > 0 && `زيادة +${shift.cashDifference} ${settings.currency || 'ج.م'}`}
+                      {(shift.cashDifference || 0) < 0 && `عجز ${shift.cashDifference} ${settings.currency || 'ج.م'}`}
                     </span>
                   </div>
                 </div>

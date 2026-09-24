@@ -15,7 +15,7 @@ import {
   History,
   Zap,
 } from 'lucide-react';
-import { db } from '../db';
+import { db, DEFAULT_SETTINGS } from '../db';
 import { triggerPrint } from '../services/printer';
 import { useModal } from '../context/ModalContext';
 import { ShiftInvoicesModal } from '../components/ShiftInvoicesModal';
@@ -212,34 +212,6 @@ export const ShiftsView: React.FC<{
         notes: closingNotes.trim() || undefined,
       });
 
-      if (settings) {
-        triggerPrint({
-          type: 'shift_report',
-          shift: {
-            ...shiftToClose,
-            status: 'closed',
-            endTime: closedTime,
-            closedAt: closedTime,
-            openingCash: shiftToClose.openingCash || 0,
-            closingCashActual: actual,
-            closingCashSystem: updatedSystemCash,
-            cashDifference: diff,
-            totalSalesCash: cashSales,
-            totalSalesWallet: walletSales,
-            totalSalesDebt: debtSales,
-            totalSalesCount,
-            totalExpenses: shiftToClose.totalExpenses || 0,
-            totalWalletIn: shiftToClose.totalWalletIn || 0,
-            totalWalletOut: shiftToClose.totalWalletOut || 0,
-            totalCommissions: updatedCommissions,
-            fawrySalesTotal: fawrySales,
-            fawryNetProfit: fawryProfit,
-            totalNetProfit,
-          },
-          settings,
-        });
-      }
-
       showToast('تم تقفيل الوردية وجرد الدرج بنجاح!');
     } catch (err: any) {
       console.error('Error closing shift:', err);
@@ -362,28 +334,28 @@ export const ShiftsView: React.FC<{
             <div>
               <span className="text-xs text-slate-400 block">الكاش الافتتاحي:</span>
               <span className="text-lg font-black font-mono mt-1 block">
-                {activeShift.openingCash.toLocaleString()} {settings?.currency || 'ج'}
+                {(activeShift.openingCash || 0).toLocaleString()} {settings?.currency || 'ج'}
               </span>
             </div>
 
             <div>
               <span className="text-xs text-slate-400 block">مبيعات نقدية في الوردية:</span>
               <span className="text-lg font-black font-mono text-emerald-400 mt-1 block">
-                +{activeShift.totalSalesCash.toLocaleString()} {settings?.currency || 'ج'}
+                +{(activeShift.totalSalesCash || 0).toLocaleString()} {settings?.currency || 'ج'}
               </span>
             </div>
 
             <div>
               <span className="text-xs text-slate-400 block">أرباح عمولات الكاش (صافي الربح):</span>
               <span className="text-lg font-black font-mono text-purple-400 mt-1 block">
-                +{activeShift.totalCommissions.toLocaleString()} {settings?.currency || 'ج'}
+                +{(activeShift.totalCommissions || 0).toLocaleString()} {settings?.currency || 'ج'}
               </span>
             </div>
 
             <div className="bg-white/5 p-3 rounded-xl border border-white/10">
               <span className="text-xs text-indigo-300 block font-bold">الكاش المفترض بالدرج الآن:</span>
               <span className="text-2xl font-black font-mono text-white mt-0.5 block">
-                {activeShift.closingCashSystem.toLocaleString()} {settings?.currency || 'ج'}
+                {(activeShift.closingCashSystem || 0).toLocaleString()} {settings?.currency || 'ج'}
               </span>
             </div>
           </div>
@@ -484,24 +456,24 @@ export const ShiftsView: React.FC<{
                       ? new Date(s.endTime).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' })
                       : 'مفتوحة'}
                   </td>
-                  <td className="p-3 font-mono font-bold">{s.closingCashSystem.toLocaleString()} ج</td>
+                  <td className="p-3 font-mono font-bold">{(s.closingCashSystem || 0).toLocaleString()} ج</td>
                   <td className="p-3 font-mono font-bold">
-                    {s.status === 'closed' ? `${s.closingCashActual.toLocaleString()} ج` : '-'}
+                    {s.status === 'closed' ? `${(s.closingCashActual || 0).toLocaleString()} ج` : '-'}
                   </td>
                   <td className="p-3 font-mono">
                     {s.status === 'closed' ? (
                       <span
                         className={`inline-block px-2.5 py-0.5 rounded font-bold ${
-                          s.cashDifference === 0
+                          (s.cashDifference || 0) === 0
                             ? 'bg-emerald-100 text-emerald-800'
-                            : s.cashDifference > 0
+                            : (s.cashDifference || 0) > 0
                             ? 'bg-blue-100 text-blue-800'
                             : 'bg-red-100 text-red-800'
                         }`}
                       >
-                        {s.cashDifference === 0
+                        {(s.cashDifference || 0) === 0
                           ? 'مطابق (0)'
-                          : s.cashDifference > 0
+                          : (s.cashDifference || 0) > 0
                           ? `+${s.cashDifference} ج`
                           : `${s.cashDifference} ج`}
                       </span>
@@ -530,13 +502,11 @@ export const ShiftsView: React.FC<{
                     <button
                       type="button"
                       onClick={() => {
-                        if (settings) {
-                          triggerPrint({
-                            type: 'shift_report',
-                            shift: s,
-                            settings,
-                          });
-                        }
+                        triggerPrint({
+                          type: 'shift_report',
+                          shift: s,
+                          settings: settings || DEFAULT_SETTINGS,
+                        });
                       }}
                       className="p-1.5 rounded-lg bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-blue-600 transition cursor-pointer"
                       title="طباعة تقرير الوردية Z-Report"

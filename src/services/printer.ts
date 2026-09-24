@@ -8,6 +8,7 @@ import type {
   Accessory,
 } from '../types';
 import { systemLogger } from './logger';
+import { DEFAULT_SETTINGS } from '../db';
 
 export type PrintDocumentType =
   | 'sale_receipt'
@@ -238,73 +239,80 @@ export async function kickCashDrawer(targetPrinterName?: string): Promise<boolea
 // Main Unified Print Trigger (Desktop Native Bridge -> Print Preview Modal)
 // ═══════════════════════════════════════════════════════════════════════════
 export async function triggerPrint(printData: PrintData): Promise<void> {
-  const docInfo = `نوع: ${printData.type} | المحل: ${printData.settings.storeName}`;
-  await systemLogger.logPrinter({
-    message: `بدء معالجة أمر طباعة (${docInfo})`,
-    docType: printData.type,
-    printerName: printData.settings.paperSize,
-  });
+  try {
+    const safeSettings = { ...DEFAULT_SETTINGS, ...(printData?.settings || {}) };
+    printData.settings = safeSettings;
 
-  const selectedPrinterName =
-    printData.settings.selectedPrinter ||
-    (printData.settings as any).printerName ||
-    '';
+    const docInfo = `نوع: ${printData.type} | المحل: ${safeSettings.storeName}`;
+    await systemLogger.logPrinter({
+      message: `بدء معالجة أمر طباعة (${docInfo})`,
+      docType: printData.type,
+      printerName: safeSettings.paperSize,
+    });
 
-  const isSilentEnabled =
-    printData.settings.silentPrintEnabled ||
-    (printData.settings.autoPrintReceipt && !!selectedPrinterName);
+    const selectedPrinterName =
+      safeSettings.selectedPrinter ||
+      (safeSettings as any).printerName ||
+      '';
 
-  // 1. If running in Desktop mode and silent print is requested, attempt direct OS silent print
-  const bridge = detectDesktopEnvironment();
-  if (bridge.isDesktop && isSilentEnabled) {
-    if (bridge.printSilent) {
-      try {
-        await systemLogger.logPrinter({
-          message: `محاولة الطباعة الصامتة المباشرة لنظام التشغيل على الطابعة: ${selectedPrinterName || 'الافتراضية'}`,
-          docType: printData.type,
-          printerName: selectedPrinterName,
-        });
-        const printed = await bridge.printSilent({ deviceName: selectedPrinterName });
-        if (printed) {
+    const isSilentEnabled =
+      safeSettings.silentPrintEnabled ||
+      (safeSettings.autoPrintReceipt && !!selectedPrinterName);
+
+    // 1. If running in Desktop mode and silent print is requested, attempt direct OS silent print
+    const bridge = detectDesktopEnvironment();
+    if (bridge.isDesktop && isSilentEnabled) {
+      if (bridge.printSilent) {
+        try {
           await systemLogger.logPrinter({
-            message: 'تمت الطباعة الصامتة بنجاح عبر نظام التشغيل',
+            message: `محاولة الطباعة الصامتة المباشرة لنظام التشغيل على الطابعة: ${selectedPrinterName || 'الافتراضية'}`,
             docType: printData.type,
             printerName: selectedPrinterName,
           });
-          return;
+          const printed = await bridge.printSilent({ deviceName: selectedPrinterName });
+          if (printed) {
+            await systemLogger.logPrinter({
+              message: 'تمت الطباعة الصامتة بنجاح عبر نظام التشغيل',
+              docType: printData.type,
+              printerName: selectedPrinterName,
+            });
+            return;
+          }
+        } catch (err: any) {
+          console.warn('Native printSilent fallback note:', err);
         }
-      } catch (err: any) {
-        console.warn('Native printSilent fallback note:', err);
       }
-    }
 
-    if (bridge.printRaw) {
-      try {
-        await systemLogger.logPrinter({
-          message: 'محاولة الطباعة المباشرة عبر منفذ سطح المكتب الأصلي (Desktop Native Bridge)',
-          docType: printData.type,
-        });
-        const rawBuffer = buildEscPosReceiptBuffer(printData);
-        const printed = await bridge.printRaw(rawBuffer);
-        if (printed) {
+      if (bridge.printRaw) {
+        try {
           await systemLogger.logPrinter({
-            message: 'تمت الطباعة بنجاح عبر مشغل سطح المكتب الأصلي',
+            message: 'محاولة الطباعة المباشرة عبر منفذ سطح المكتب الأصلي (Desktop Native Bridge)',
             docType: printData.type,
           });
-          return;
+          const rawBuffer = buildEscPosReceiptBuffer(printData);
+          const printed = await bridge.printRaw(rawBuffer);
+          if (printed) {
+            await systemLogger.logPrinter({
+              message: 'تمت الطباعة بنجاح عبر مشغل سطح المكتب الأصلي',
+              docType: printData.type,
+            });
+            return;
+          }
+        } catch (err: any) {
+          console.warn('Native desktop print fallback:', err);
         }
-      } catch (err: any) {
-        console.warn('Native desktop print fallback:', err);
       }
     }
-  }
 
-  // 2. Fallback / standard: dispatch print event for custom preview & browser print
-  await systemLogger.logPrinter({
-    message: 'فتح نافذة معاينة الفاتورة للطباعة',
-    docType: printData.type,
-    printerName: printData.settings.paperSize,
-  });
-  const event = new CustomEvent('mobile-pos-print', { detail: printData });
-  window.dispatchEvent(event);
+    // 2. Fallback / standard: dispatch print event for custom preview & browser print
+    await systemLogger.logPrinter({
+      message: 'فتح نافذة معاينة الفاتورة للطباعة',
+      docType: printData.type,
+      printerName: safeSettings.paperSize,
+    });
+    const event = new CustomEvent('mobile-pos-print', { detail: printData });
+    window.dispatchEvent(event);
+  } catch (err) {
+    console.error('triggerPrint caught error safely without crashing:', err);
+  }
 }

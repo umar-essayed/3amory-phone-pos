@@ -122,14 +122,16 @@ export const AccessoriesView: React.FC = () => {
       return;
     }
 
+    const wholesalePrice = parseFloat(form.sellPriceWholesale) || parseFloat(form.costPrice) || 0;
+
     const newAcc: Accessory = {
       id: `acc_${Date.now()}`,
       name: form.name.trim(),
       category: form.category,
       barcode: finalBarcode,
-      costPrice: parseFloat(form.costPrice) || 0,
+      costPrice: wholesalePrice,
       sellPriceRetail: parseFloat(form.sellPriceRetail),
-      sellPriceWholesale: parseFloat(form.sellPriceWholesale) || parseFloat(form.sellPriceRetail),
+      sellPriceWholesale: wholesalePrice,
       stockQuantity: totalStock,
       minStockAlert: parseInt(form.minStockAlert) || 5,
       location: form.location.trim() || undefined,
@@ -156,12 +158,14 @@ export const AccessoriesView: React.FC = () => {
       totalStock = editingAcc.variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
     }
 
+    const wholesale = Number(editingAcc.sellPriceWholesale) || Number(editingAcc.costPrice) || 0;
+
     await db.accessories.update(editingAcc.id, {
       name: editingAcc.name.trim(),
       category: editingAcc.category,
-      costPrice: Number(editingAcc.costPrice) || 0,
+      costPrice: wholesale,
       sellPriceRetail: Number(editingAcc.sellPriceRetail),
-      sellPriceWholesale: Number(editingAcc.sellPriceWholesale) || Number(editingAcc.sellPriceRetail),
+      sellPriceWholesale: wholesale,
       stockQuantity: totalStock,
       minStockAlert: Number(editingAcc.minStockAlert) || 5,
       location: editingAcc.location?.trim() || undefined,
@@ -514,9 +518,8 @@ export const AccessoriesView: React.FC = () => {
                 <th className="p-4">الصنف والمتغيرات</th>
                 <th className="p-4">الباركود</th>
                 <th className="p-4">الفئة</th>
-                <th className="p-4 text-left">التكلفة</th>
-                <th className="p-4 text-left">سعر البيع</th>
-                <th className="p-4 text-left">الجملة</th>
+                <th className="p-4 text-left">سعر الجملة</th>
+                <th className="p-4 text-left">سعر البيع (القطاعي)</th>
                 <th className="p-4 text-center">حالة المخزون</th>
                 <th className="p-4 text-center">إجراءات سريعة</th>
               </tr>
@@ -584,16 +587,12 @@ export const AccessoriesView: React.FC = () => {
                         </span>
                       </td>
 
-                      <td className="p-4 font-mono text-slate-400 text-left">
-                        {acc.costPrice.toLocaleString()} {cur}
+                      <td className="p-4 font-mono font-bold text-slate-600 text-left">
+                        {(acc.sellPriceWholesale || acc.costPrice || 0).toLocaleString()} {cur}
                       </td>
 
                       <td className="p-4 font-mono font-black text-blue-700 text-sm text-left">
                         {acc.sellPriceRetail.toLocaleString()} {cur}
-                      </td>
-
-                      <td className="p-4 font-mono font-bold text-slate-700 text-left">
-                        {acc.sellPriceWholesale.toLocaleString()} {cur}
                       </td>
 
                       {/* Stock Status Badge */}
@@ -866,20 +865,20 @@ export const AccessoriesView: React.FC = () => {
               </div>
 
               {/* Pricing Grid */}
-              <div className="grid grid-cols-3 gap-3 bg-gradient-to-br from-blue-50 to-indigo-50/40 p-4 rounded-2xl border border-blue-100">
+              <div className="grid grid-cols-2 gap-4 bg-gradient-to-br from-blue-50 to-indigo-50/40 p-4 rounded-2xl border border-blue-100">
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1.5">سعر التكلفة</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">سعر الجملة (الشراء)</label>
                   <input
                     type="number"
                     step="any"
-                    value={form.costPrice}
-                    onChange={(e) => setForm({ ...form, costPrice: e.target.value })}
+                    value={form.sellPriceWholesale || form.costPrice}
+                    onChange={(e) => setForm({ ...form, sellPriceWholesale: e.target.value, costPrice: e.target.value })}
                     placeholder="0"
                     className="w-full rounded-xl border border-slate-200 p-2.5 text-sm font-mono focus:border-blue-500 focus:outline-none bg-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-blue-800 mb-1.5">سعر القطاعي *</label>
+                  <label className="block text-xs font-bold text-blue-800 mb-1.5">سعر البيع (القطاعي) *</label>
                   <input
                     type="number"
                     step="any"
@@ -888,17 +887,6 @@ export const AccessoriesView: React.FC = () => {
                     placeholder="0"
                     className="w-full rounded-xl border-2 border-blue-400 p-2.5 text-sm font-black font-mono focus:border-blue-600 focus:outline-none bg-white"
                     required
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1.5">سعر الجملة</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={form.sellPriceWholesale}
-                    onChange={(e) => setForm({ ...form, sellPriceWholesale: e.target.value })}
-                    placeholder="0"
-                    className="w-full rounded-xl border border-slate-200 p-2.5 text-sm font-mono focus:border-blue-500 focus:outline-none bg-white"
                   />
                 </div>
               </div>
@@ -1109,19 +1097,23 @@ export const AccessoriesView: React.FC = () => {
               </div>
 
               {/* Pricing Grid */}
-              <div className="grid grid-cols-3 gap-3 bg-gradient-to-br from-indigo-50 to-purple-50/40 p-4 rounded-2xl border border-indigo-100">
+              <div className="grid grid-cols-2 gap-4 bg-gradient-to-br from-indigo-50 to-purple-50/40 p-4 rounded-2xl border border-indigo-100">
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1.5">سعر التكلفة</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">سعر الجملة (الشراء)</label>
                   <input
                     type="number"
                     step="any"
-                    value={editingAcc.costPrice}
-                    onChange={(e) => setEditingAcc({ ...editingAcc, costPrice: parseFloat(e.target.value) || 0 })}
+                    value={editingAcc.sellPriceWholesale || editingAcc.costPrice || ''}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value) || 0;
+                      setEditingAcc({ ...editingAcc, sellPriceWholesale: v, costPrice: v });
+                    }}
+                    placeholder="0"
                     className="w-full rounded-xl border border-slate-200 p-2.5 text-sm font-mono focus:border-indigo-500 focus:outline-none bg-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-indigo-800 mb-1.5">سعر القطاعي *</label>
+                  <label className="block text-xs font-bold text-indigo-800 mb-1.5">سعر البيع (القطاعي) *</label>
                   <input
                     type="number"
                     step="any"
@@ -1129,16 +1121,6 @@ export const AccessoriesView: React.FC = () => {
                     onChange={(e) => setEditingAcc({ ...editingAcc, sellPriceRetail: parseFloat(e.target.value) || 0 })}
                     className="w-full rounded-xl border-2 border-indigo-400 p-2.5 text-sm font-black font-mono focus:border-indigo-600 focus:outline-none bg-white"
                     required
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1.5">سعر الجملة</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={editingAcc.sellPriceWholesale}
-                    onChange={(e) => setEditingAcc({ ...editingAcc, sellPriceWholesale: parseFloat(e.target.value) || 0 })}
-                    className="w-full rounded-xl border border-slate-200 p-2.5 text-sm font-mono focus:border-indigo-500 focus:outline-none bg-white"
                   />
                 </div>
               </div>

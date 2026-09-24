@@ -82,7 +82,8 @@ export function MobileAnalyticsView({ data }: MobileAnalyticsViewProps) {
   let accProfit = 0;
   for (const inv of filteredInvoices) {
     for (const item of inv.items || []) {
-      const profit = (item.unitPrice - item.costPrice) * (item.quantity || 1);
+      const wholesale = item.costPrice > 0 ? item.costPrice : ((item as any).wholesalePrice || 0);
+      const profit = (item.unitPrice - wholesale) * (item.quantity || 1);
       if (item.type === 'phone') {
         phoneProfit += profit;
       } else {

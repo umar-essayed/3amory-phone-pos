@@ -219,6 +219,35 @@ async function doInitializeDatabase() {
 
     // Shifts are strictly opened manually by the user or cashier. No automatic shift is created.
 
+    // Auto-heal accessories: ensure wholesale price and cost price are unified
+    const allAccs = await db.accessories.toArray();
+    for (const acc of allAccs) {
+      const effectiveWholesale = acc.costPrice > 0 ? acc.costPrice : (acc.sellPriceWholesale || 0);
+      if (acc.costPrice !== effectiveWholesale || acc.sellPriceWholesale !== effectiveWholesale) {
+        await db.accessories.update(acc.id, {
+          costPrice: effectiveWholesale,
+          sellPriceWholesale: effectiveWholesale,
+        });
+      }
+    }
+
+    // Auto-heal invoices: ensure totalProfit reflects selling price minus wholesale cost
+    const allInvoices = await db.invoices.toArray();
+    for (const inv of allInvoices) {
+      if (inv.items && inv.items.length > 0) {
+        const calculatedItemsProfit = inv.items.reduce((sum, item) => {
+          const buyPrice = item.costPrice > 0 ? item.costPrice : ((item as any).wholesalePrice || 0);
+          const returnedQty = item.returnedQuantity || 0;
+          const soldQty = Math.max(0, item.quantity - returnedQty);
+          return sum + (item.unitPrice - buyPrice) * soldQty;
+        }, 0);
+        const accurateProfit = Math.max(0, calculatedItemsProfit - (inv.discount || 0));
+        if (inv.totalProfit !== accurateProfit && accurateProfit > 0) {
+          await db.invoices.update(inv.id, { totalProfit: accurateProfit });
+        }
+      }
+    }
+
     // Auto-heal any shifts that might have negative closingCashSystem
     await repairNegativeShifts();
 

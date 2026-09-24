@@ -51,6 +51,7 @@ export const AnalyticsView: React.FC = () => {
   };
 
   const filteredInvoices = invoices.filter((inv) => {
+    if (inv.status === 'canceled') return false;
     const matchesDate = filterDate(inv.createdAt);
     const matchesSearch =
       inv.invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -59,12 +60,24 @@ export const AnalyticsView: React.FC = () => {
     return matchesDate && matchesSearch;
   });
 
+  // Calculate invoice profit by subtracting wholesale cost from selling price
+  const getInvoiceNetProfit = (inv: SaleInvoice) => {
+    if (!inv.items || inv.items.length === 0) return inv.totalProfit || 0;
+    const itemsGrossProfit = inv.items.reduce((sum, item) => {
+      const wholesale = item.costPrice > 0 ? item.costPrice : ((item as any).wholesalePrice || 0);
+      const returnedQty = item.returnedQuantity || 0;
+      const soldQty = Math.max(0, item.quantity - returnedQty);
+      return sum + (item.unitPrice - wholesale) * soldQty;
+    }, 0);
+    return Math.max(0, itemsGrossProfit - (inv.discount || 0));
+  };
+
   // Calculate totals
-  const totalSalesRevenue = filteredInvoices.reduce((acc, inv) => acc + inv.total, 0);
-  const totalSalesProfit = filteredInvoices.reduce((acc, inv) => acc + inv.totalProfit, 0);
+  const totalSalesRevenue = filteredInvoices.reduce((acc, inv) => acc + (inv.total - (inv.returnedAmount || 0)), 0);
+  const totalSalesProfit = filteredInvoices.reduce((acc, inv) => acc + getInvoiceNetProfit(inv), 0);
 
   const filteredWalletTx = walletTx.filter((t) => filterDate(t.createdAt));
-  const totalWalletCommissions = filteredWalletTx.reduce((acc, t) => acc + t.commission, 0);
+  const totalWalletCommissions = filteredWalletTx.reduce((acc, t) => acc + (t.netProfit ?? t.commission ?? 0), 0);
 
   const filteredRepairs = repairs.filter((r) => r.deliveredAt && filterDate(r.deliveredAt));
   const totalRepairRevenue = filteredRepairs.reduce((acc, r) => acc + r.finalCost, 0);
@@ -79,10 +92,10 @@ export const AnalyticsView: React.FC = () => {
   const avgTicket = filteredInvoices.length > 0 ? Math.round(totalSalesRevenue / filteredInvoices.length) : 0;
 
   // Payment methods breakdown
-  const payCash = filteredInvoices.filter((i) => i.paymentMethod === 'cash').reduce((a, b) => a + b.total, 0);
-  const payWallet = filteredInvoices.filter((i) => i.paymentMethod === 'wallet').reduce((a, b) => a + b.total, 0);
-  const payInstapay = filteredInvoices.filter((i) => i.paymentMethod === 'instapay').reduce((a, b) => a + b.total, 0);
-  const payDebt = filteredInvoices.filter((i) => i.paymentMethod === 'debt').reduce((a, b) => a + b.total, 0);
+  const payCash = filteredInvoices.filter((i) => i.paymentMethod === 'cash').reduce((a, b) => a + (b.total - (b.returnedAmount || 0)), 0);
+  const payWallet = filteredInvoices.filter((i) => i.paymentMethod === 'wallet').reduce((a, b) => a + (b.total - (b.returnedAmount || 0)), 0);
+  const payInstapay = filteredInvoices.filter((i) => i.paymentMethod === 'instapay').reduce((a, b) => a + (b.total - (b.returnedAmount || 0)), 0);
+  const payDebt = filteredInvoices.filter((i) => i.paymentMethod === 'debt').reduce((a, b) => a + (b.total - (b.returnedAmount || 0)), 0);
 
   // Daily Trend Data (Last 7 days)
   const daysData = Array.from({ length: 7 }).map((_, idx) => {
@@ -91,9 +104,9 @@ export const AnalyticsView: React.FC = () => {
     const dateStr = targetDate.toISOString().split('T')[0];
     const dayLabel = targetDate.toLocaleDateString('ar-EG', { weekday: 'short' });
 
-    const dayInvoices = invoices.filter((i) => i.createdAt.startsWith(dateStr));
-    const dayRevenue = dayInvoices.reduce((a, b) => a + b.total, 0);
-    const dayProfit = dayInvoices.reduce((a, b) => a + b.totalProfit, 0);
+    const dayInvoices = invoices.filter((i) => i.createdAt.startsWith(dateStr) && i.status !== 'canceled');
+    const dayRevenue = dayInvoices.reduce((a, b) => a + (b.total - (b.returnedAmount || 0)), 0);
+    const dayProfit = dayInvoices.reduce((a, b) => a + getInvoiceNetProfit(b), 0);
 
     return {
       date: dateStr,
@@ -160,36 +173,54 @@ export const AnalyticsView: React.FC = () => {
       </div>
 
       {/* Main KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Grand Net Profit */}
-        <div className="bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800 text-white p-5 rounded-2xl shadow-md flex items-center justify-between">
+        <div className="bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800 text-white p-5 rounded-2xl shadow-md flex items-center justify-between sm:col-span-2 lg:col-span-1">
           <div>
-            <p className="text-xs text-emerald-100 font-bold">إجمالي صافي الربح الحقيقي</p>
-            <h3 className="text-3xl font-black mt-1 font-mono">
+            <p className="text-xs text-emerald-100 font-bold">إجمالي صافي الربح</p>
+            <h3 className="text-2xl font-black mt-1 font-mono">
               +{grandNetProfit.toLocaleString()} {cur}
             </h3>
             <span className="text-[10px] text-emerald-200 mt-1 block font-medium">
               هامش الربح العام: {profitMarginPercent}%
             </span>
           </div>
-          <div className="h-12 w-12 rounded-xl bg-white/20 flex items-center justify-center">
-            <TrendingUp className="h-6 w-6 text-white" />
+          <div className="h-11 w-11 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+            <TrendingUp className="h-5 w-5 text-white" />
           </div>
         </div>
 
-        {/* Sales Revenue */}
+        {/* Total Sales (إجمالي مبيعات الفترة) */}
         <div className="bg-white p-5 rounded-2xl shadow-xs border border-slate-200 flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-500 font-bold">إجمالي مبيعات البضائع</p>
-            <h3 className="text-2xl font-black text-slate-900 mt-1 font-mono">
+            <p className="text-xs text-slate-500 font-bold">
+              إجمالي المبيعات ({dateFilter === 'today' ? 'اليوم' : dateFilter === 'week' ? 'آخر 7 أيام' : dateFilter === 'month' ? 'هذا الشهر' : 'الكل'})
+            </p>
+            <h3 className="text-2xl font-black text-blue-700 mt-1 font-mono">
               {totalSalesRevenue.toLocaleString()} {cur}
             </h3>
-            <span className="text-[10px] text-emerald-600 font-semibold font-mono">
-              ربح المبيعات: +{totalSalesProfit.toLocaleString()} {cur}
+            <span className="text-[10px] text-slate-400 font-medium">
+              عدد الفواتير: {filteredInvoices.length} فاتورة
             </span>
           </div>
-          <div className="h-12 w-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-            <ShoppingCart className="h-6 w-6" />
+          <div className="h-11 w-11 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+            <ShoppingCart className="h-5 w-5" />
+          </div>
+        </div>
+
+        {/* Merchandise Profit (أرباح مبيعات البضائع: سعر البيع - سعر الجملة) */}
+        <div className="bg-white p-5 rounded-2xl shadow-xs border border-slate-200 flex items-center justify-between">
+          <div>
+            <p className="text-xs text-slate-500 font-bold">أرباح مبيعات البضائع</p>
+            <h3 className="text-2xl font-black text-emerald-600 mt-1 font-mono">
+              +{totalSalesProfit.toLocaleString()} {cur}
+            </h3>
+            <span className="text-[10px] text-slate-400 font-medium">
+              البيع ناقص سعر الجملة
+            </span>
+          </div>
+          <div className="h-11 w-11 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+            <Tag className="h-5 w-5" />
           </div>
         </div>
 
@@ -204,8 +235,8 @@ export const AnalyticsView: React.FC = () => {
               من {filteredWalletTx.length} عملية تحويل وسحب
             </span>
           </div>
-          <div className="h-12 w-12 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center">
-            <Percent className="h-6 w-6" />
+          <div className="h-11 w-11 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center shrink-0">
+            <Percent className="h-5 w-5" />
           </div>
         </div>
 
@@ -217,11 +248,11 @@ export const AnalyticsView: React.FC = () => {
               +{totalRepairProfit.toLocaleString()} {cur}
             </h3>
             <span className="text-[10px] text-slate-400 font-medium">
-              إجمالي دخل الصيانة: {totalRepairRevenue.toLocaleString()} {cur}
+              دخل الصيانة: {totalRepairRevenue.toLocaleString()} {cur}
             </span>
           </div>
-          <div className="h-12 w-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-            <Wrench className="h-6 w-6" />
+          <div className="h-11 w-11 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+            <Wrench className="h-5 w-5" />
           </div>
         </div>
       </div>
