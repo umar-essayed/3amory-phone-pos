@@ -44,19 +44,19 @@ export function MobileDebtsView({ customers, suppliers }: MobileDebtsViewProps) 
   const q = searchQuery.toLowerCase().trim();
 
   const filteredVip = vipCustomers.filter(
-    (c) => !q || c.name.toLowerCase().includes(q) || c.phone.includes(q)
+    (c) => !q || c.name.toLowerCase().includes(q) || (c.phone && c.phone.includes(q))
   );
 
   const filteredCustomers = regularDebtors.filter(
-    (c) => !q || c.name.toLowerCase().includes(q) || c.phone.includes(q)
+    (c) => !q || c.name.toLowerCase().includes(q) || (c.phone && c.phone.includes(q))
   );
 
   const filteredSuppliers = suppliers.filter(
-    (s) => !q || s.name.toLowerCase().includes(q) || s.phone?.includes(q)
+    (s) => !q || s.name.toLowerCase().includes(q) || (s.phone && s.phone.includes(q))
   );
 
   return (
-    <div className="space-y-4 pb-24 text-slate-100" dir="rtl">
+    <div className="space-y-4 pb-36 text-slate-100" dir="rtl">
       {/* ── Tabs Switcher ────────────────────────────────────────── */}
       <div className="grid grid-cols-3 p-1 bg-slate-900 rounded-2xl border border-slate-800 shadow-md">
         <button
@@ -168,7 +168,7 @@ export function MobileDebtsView({ customers, suppliers }: MobileDebtsViewProps) 
                     <Crown className="w-4 h-4 text-amber-400" />
                     <span className="text-xs font-black text-white">{c.name}</span>
                   </div>
-                  <span className="text-[11px] font-mono text-slate-400">{c.phone}</span>
+                  <span className="text-[11px] font-mono text-slate-400">{c.phone || 'بدون هاتف'}</span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-800">

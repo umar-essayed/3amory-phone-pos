@@ -160,8 +160,8 @@ export const AccountsView: React.FC = () => {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !phone) {
-      showAlert('الاسم ورقم الهاتف حقول مطلوبة.', 'بيانات ناقصة', 'warning');
+    if (!name.trim()) {
+      showAlert('يرجى إدخال الاسم، فهو حقل مطلوب.', 'بيانات ناقصة', 'warning');
       return;
     }
 
@@ -665,16 +665,15 @@ export const AccountsView: React.FC = () => {
       )}
 
       <div>
-        <label className="block text-xs font-bold text-slate-700 mb-1.5">رقم الهاتف *</label>
+        <label className="block text-xs font-bold text-slate-700 mb-1.5">رقم الهاتف (اختياري)</label>
         <div className="relative">
           <Phone className="absolute right-3 top-3 h-4 w-4 text-slate-400" />
           <input
             type="tel"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            placeholder="01xxxxxxxxx"
+            placeholder="01xxxxxxxxx (اختياري)"
             className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 pr-10 text-sm font-mono focus:border-blue-500 focus:outline-none"
-            required
           />
         </div>
       </div>
@@ -880,7 +879,7 @@ export const AccountsView: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-400 font-mono mt-0.5">{customer.phone}</p>
+                    <p className="text-xs text-slate-400 font-mono mt-0.5">{customer.phone || 'بدون هاتف'}</p>
                     {customer.isVipCash && (
                       <div className="mt-1 flex items-center gap-2 flex-wrap">
                         <span className={`text-[11px] font-mono font-black px-2 py-0.5 rounded-md ${
@@ -1018,7 +1017,7 @@ export const AccountsView: React.FC = () => {
                     {supplier.company && (
                       <p className="text-xs text-blue-600 font-semibold mt-0.5">{supplier.company}</p>
                     )}
-                    <p className="text-xs text-slate-400 font-mono mt-0.5">{supplier.phone}</p>
+                    <p className="text-xs text-slate-400 font-mono mt-0.5">{supplier.phone || 'بدون هاتف'}</p>
                   </div>
 
                   <div className="text-left shrink-0 space-y-1">
@@ -1160,13 +1159,12 @@ export const AccountsView: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">الهاتف *</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">الهاتف (اختياري)</label>
                 <input
                   type="tel"
                   value={editingCustomer.phone}
                   onChange={(e) => setEditingCustomer((p) => p ? { ...p, phone: e.target.value } : null)}
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-mono focus:border-blue-500 focus:outline-none"
-                  required
                 />
               </div>
 
@@ -1291,13 +1289,12 @@ export const AccountsView: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">الهاتف *</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">الهاتف (اختياري)</label>
                 <input
                   type="tel"
                   value={editingSupplier.phone}
                   onChange={(e) => setEditingSupplier((p) => p ? { ...p, phone: e.target.value } : null)}
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-mono focus:border-blue-500 focus:outline-none"
-                  required
                 />
               </div>
               <div>
@@ -1475,7 +1472,7 @@ export const AccountsView: React.FC = () => {
             <form onSubmit={handleAdjustDebt} className="p-6 space-y-4">
               <div className="bg-slate-50 rounded-2xl p-4 text-center border border-slate-100">
                 <p className="text-xs text-slate-500 font-semibold">{adjustParty.party.name}</p>
-                <p className="text-xs text-slate-400 font-mono mt-0.5">{adjustParty.party.phone}</p>
+                <p className="text-xs text-slate-400 font-mono mt-0.5">{adjustParty.party.phone || 'بدون هاتف'}</p>
                 <p className="text-xs text-slate-600 mt-2 font-bold">
                   الرصيد الحالي:{' '}
                   <span className="font-mono text-sm text-red-600">
@@ -1502,14 +1499,13 @@ export const AccountsView: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">سبب المعاملة / ملاحظات *</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">سبب المعاملة / ملاحظات (اختياري)</label>
                 <textarea
                   value={adjustNote}
                   onChange={(e) => setAdjustNote(e.target.value)}
                   rows={2}
-                  placeholder="مثال: فاتورة صيانة خارج السيستم، بضاعة يدوية، سلفة..."
+                  placeholder="مثال: فاتورة صيانة خارج السيستم، بضاعة يدوية، سلفة... (اختياري)"
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs focus:border-red-500 focus:outline-none resize-none"
-                  required
                 />
               </div>
               <div className="flex gap-3 pt-2">
@@ -1548,7 +1544,7 @@ export const AccountsView: React.FC = () => {
                   <h3 className="font-display font-bold text-lg">
                     كشف حساب وأجندة {viewingLedgerParty.type === 'customer' ? 'العميل' : 'المورد'}: {viewingLedgerParty.party.name}
                   </h3>
-                  <p className="text-xs text-purple-200 font-mono mt-0.5">{viewingLedgerParty.party.phone}</p>
+                  <p className="text-xs text-purple-200 font-mono mt-0.5">{viewingLedgerParty.party.phone || 'بدون هاتف'}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
