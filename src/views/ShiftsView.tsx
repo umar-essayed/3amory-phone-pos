@@ -83,6 +83,7 @@ export const ShiftsView: React.FC<{
   const [closingNotes, setClosingNotes] = useState('');
   const [fawrySalesTotalInput, setFawrySalesTotalInput] = useState('');
   const [fawryNetProfitInput, setFawryNetProfitInput] = useState('');
+  const [shortageDeductionTarget, setShortageDeductionTarget] = useState<'net_profit' | 'drawer'>('net_profit');
 
   // Open shift modal state
   const [showOpenModal, setShowOpenModal] = useState(false);
@@ -190,17 +191,38 @@ export const ShiftsView: React.FC<{
 
       const updatedCommissions = (shiftToClose.totalCommissions || 0) + fawryProfit;
       const updatedSystemCash = shiftToClose.closingCashSystem + fawrySales;
-      const totalNetProfit = salesProfit + updatedCommissions - (shiftToClose.totalExpenses || 0);
+      const baseNetProfit = salesProfit + updatedCommissions - (shiftToClose.totalExpenses || 0);
       const diff = actual - updatedSystemCash;
       const closedTime = new Date().toISOString();
+
+      let finalNetProfit = baseNetProfit;
+      let finalClosingCashSystem = updatedSystemCash;
+
+      if (diff > 0) {
+        // الزيادة في الدرج تنزل مباشرة على صافي الربح
+        finalNetProfit = baseNetProfit + diff;
+        finalClosingCashSystem = updatedSystemCash;
+      } else if (diff < 0) {
+        // العجز في الدرج يتم التعامل معه حسب رغبة المستخدم
+        if (shortageDeductionTarget === 'net_profit') {
+          // خصم العجز من صافي الربح (المحل يتحمل العجز كخسارة)
+          finalNetProfit = Math.max(0, baseNetProfit + diff);
+          finalClosingCashSystem = updatedSystemCash;
+        } else {
+          // تسوية رصيد الدرج بالفعلي فقط دون المساس بصافي أرباح المحل
+          finalNetProfit = baseNetProfit;
+          finalClosingCashSystem = actual;
+        }
+      }
 
       await db.shifts.update(shiftToClose.id, {
         status: 'closed',
         endTime: closedTime,
         closedAt: closedTime,
         closingCashActual: actual,
-        closingCashSystem: updatedSystemCash,
+        closingCashSystem: finalClosingCashSystem,
         cashDifference: diff,
+        shortageAction: diff < 0 ? shortageDeductionTarget : undefined,
         totalSalesCash: cashSales,
         totalSalesWallet: walletSales,
         totalSalesDebt: debtSales,
@@ -208,7 +230,7 @@ export const ShiftsView: React.FC<{
         totalCommissions: updatedCommissions,
         fawrySalesTotal: fawrySales,
         fawryNetProfit: fawryProfit,
-        totalNetProfit,
+        totalNetProfit: finalNetProfit,
         notes: closingNotes.trim() || undefined,
       });
 
@@ -319,6 +341,7 @@ export const ShiftsView: React.FC<{
                 type="button"
                 onClick={() => {
                   setActualCashInput(activeShift.closingCashSystem.toString());
+                  setShortageDeductionTarget('net_profit');
                   setShowCloseModal(true);
                 }}
                 className="flex items-center gap-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 text-xs font-black shadow transition cursor-pointer"
@@ -439,6 +462,7 @@ export const ShiftsView: React.FC<{
                 <th className="p-3">الكاش النظامي</th>
                 <th className="p-3">الكاش الفعلي</th>
                 <th className="p-3">العجز / الزيادة</th>
+                <th className="p-3">صافي الربح</th>
                 <th className="p-3 text-center">فواتير ومعاملات الوردية</th>
                 <th className="p-3 text-center">تقرير التقفيل</th>
               </tr>
@@ -479,6 +503,30 @@ export const ShiftsView: React.FC<{
                       </span>
                     ) : (
                       <span className="text-slate-400">قيد العمل</span>
+                    )}
+                  </td>
+                  <td className="p-3 font-mono">
+                    {s.status === 'closed' ? (
+                      <div>
+                        <span className="font-black text-emerald-700 text-xs">
+                          {(s.totalNetProfit || 0).toLocaleString()} ج
+                        </span>
+                        {s.cashDifference && s.cashDifference > 0 ? (
+                          <span className="block text-[10px] text-blue-600 font-bold">
+                            (شامل زيادة +{s.cashDifference} ج)
+                          </span>
+                        ) : s.cashDifference && s.cashDifference < 0 && s.shortageAction === 'net_profit' ? (
+                          <span className="block text-[10px] text-rose-600 font-bold">
+                            (مخصوم عجز {s.cashDifference} ج)
+                          </span>
+                        ) : s.cashDifference && s.cashDifference < 0 && s.shortageAction === 'drawer' ? (
+                          <span className="block text-[10px] text-slate-500 font-medium">
+                            (عجز مسوّى بالدرج)
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <span className="text-slate-400">-</span>
                     )}
                   </td>
                   <td className="p-3 text-center">
@@ -535,8 +583,15 @@ export const ShiftsView: React.FC<{
               const currentFawrySales = parseFloat(fawrySalesTotalInput) || 0;
               const currentFawryProfit = parseFloat(fawryNetProfitInput) || 0;
               const expectedDrawerCash = activeShift.closingCashSystem + currentFawrySales;
-              const shiftNetProfit = activeShiftInvoicesProfit + (activeShift.totalCommissions || 0) + currentFawryProfit - (activeShift.totalExpenses || 0);
+              const baseShiftNetProfit = activeShiftInvoicesProfit + (activeShift.totalCommissions || 0) + currentFawryProfit - (activeShift.totalExpenses || 0);
               const calculatedDiff = actualCashInput ? parseFloat(actualCashInput) - expectedDrawerCash : 0;
+
+              let projectedNetProfit = baseShiftNetProfit;
+              if (calculatedDiff > 0) {
+                projectedNetProfit = baseShiftNetProfit + calculatedDiff;
+              } else if (calculatedDiff < 0 && shortageDeductionTarget === 'net_profit') {
+                projectedNetProfit = Math.max(0, baseShiftNetProfit + calculatedDiff);
+              }
 
               return (
                 <div className="space-y-3 mb-4">
@@ -550,11 +605,17 @@ export const ShiftsView: React.FC<{
                     </div>
 
                     <div className="bg-emerald-50 border border-emerald-200 p-3.5 rounded-2xl text-center shadow-2xs">
-                      <span className="block text-[11px] text-emerald-900 font-bold mb-1">صافي ربح الوردية</span>
+                      <span className="block text-[11px] text-emerald-900 font-bold mb-1">صافي ربح الوردية النهائي</span>
                       <span className="font-mono text-xl font-black text-emerald-700 block">
-                        +{shiftNetProfit.toLocaleString()} {settings?.currency || 'ج.م'}
+                        +{projectedNetProfit.toLocaleString()} {settings?.currency || 'ج.م'}
                       </span>
-                      <span className="text-[10px] text-emerald-600 block mt-1">أرباح البضاعة + عمولات الكاش وفوري</span>
+                      <span className="text-[10px] text-emerald-600 block mt-1">
+                        {calculatedDiff > 0
+                          ? `(شامل زيادة +${calculatedDiff.toLocaleString()} ج)`
+                          : calculatedDiff < 0 && shortageDeductionTarget === 'net_profit'
+                          ? `(مخصوم عجز ${calculatedDiff.toLocaleString()} ج)`
+                          : 'أرباح البضاعة + عمولات الكاش وفوري'}
+                      </span>
                     </div>
                   </div>
 
@@ -611,23 +672,81 @@ export const ShiftsView: React.FC<{
                     </div>
 
                     {actualCashInput && (
-                      <div
-                        className={`p-3 rounded-xl text-xs font-bold flex justify-between ${
-                          calculatedDiff === 0
-                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                            : calculatedDiff > 0
-                            ? 'bg-blue-50 text-blue-800 border border-blue-200'
-                            : 'bg-red-50 text-red-800 border border-red-200'
-                        }`}
-                      >
-                        <span>الفارق المحسوب:</span>
-                        <span>
-                          {calculatedDiff === 0 && 'مطابق تماماً (لا عجز ولا زيادة)'}
-                          {calculatedDiff > 0 &&
-                            `زيادة بالدرج +${calculatedDiff.toLocaleString()} ج`}
-                          {calculatedDiff < 0 &&
-                            `عجز بالدرج ${calculatedDiff.toLocaleString()} ج`}
-                        </span>
+                      <div className="space-y-2.5">
+                        <div
+                          className={`p-3 rounded-xl text-xs font-bold flex justify-between items-center ${
+                            calculatedDiff === 0
+                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                              : calculatedDiff > 0
+                              ? 'bg-blue-50 text-blue-800 border border-blue-200'
+                              : 'bg-red-50 text-red-800 border border-red-200'
+                          }`}
+                        >
+                          <span>الفارق المحسوب بالجرد:</span>
+                          <span className="font-mono font-black text-sm">
+                            {calculatedDiff === 0 && 'مطابق تماماً (لا عجز ولا زيادة)'}
+                            {calculatedDiff > 0 &&
+                              `زيادة بالدرج +${calculatedDiff.toLocaleString()} ج`}
+                            {calculatedDiff < 0 &&
+                              `عجز بالدرج ${calculatedDiff.toLocaleString()} ج`}
+                          </span>
+                        </div>
+
+                        {calculatedDiff > 0 && (
+                          <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900">
+                            <span className="font-bold block mb-1">✨ زيادة بالدرج (+{calculatedDiff.toLocaleString()} ج):</span>
+                            <span>
+                              سيتم إضافة هذه الزيادة بالكامل لتنزل في <strong>صافي ربح الوردية</strong> مباشرة (دون المساس برصيد كاش الدرج النظامي).
+                            </span>
+                          </div>
+                        )}
+
+                        {calculatedDiff < 0 && (
+                          <div className="p-3.5 rounded-xl bg-amber-50/90 border border-amber-200 text-xs space-y-2.5">
+                            <div className="font-black text-amber-950 flex items-center justify-between">
+                              <span>⚠️ يوجد عجز بالدرج ({Math.abs(calculatedDiff).toLocaleString()} ج)</span>
+                              <span className="text-[11px] font-bold text-amber-800">اختر جهة الخصم:</span>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setShortageDeductionTarget('net_profit')}
+                                className={`p-2.5 rounded-xl text-right border transition cursor-pointer flex flex-col gap-1 ${
+                                  shortageDeductionTarget === 'net_profit'
+                                    ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                                    : 'bg-white text-slate-700 border-amber-200 hover:bg-amber-100/60'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between font-bold text-xs">
+                                  <span>خصم العجز من صافي الربح</span>
+                                  <span className="text-sm">{shortageDeductionTarget === 'net_profit' ? '●' : '○'}</span>
+                                </div>
+                                <span className={`text-[10px] leading-tight ${shortageDeductionTarget === 'net_profit' ? 'text-amber-100' : 'text-slate-500'}`}>
+                                  المحل يتحمل العجز كخسارة وتخصم من أرباح الوردية
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => setShortageDeductionTarget('drawer')}
+                                className={`p-2.5 rounded-xl text-right border transition cursor-pointer flex flex-col gap-1 ${
+                                  shortageDeductionTarget === 'drawer'
+                                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                                    : 'bg-white text-slate-700 border-blue-200 hover:bg-blue-100/60'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between font-bold text-xs">
+                                  <span>خصم العجز من الدرج فقط</span>
+                                  <span className="text-sm">{shortageDeductionTarget === 'drawer' ? '●' : '○'}</span>
+                                </div>
+                                <span className={`text-[10px] leading-tight ${shortageDeductionTarget === 'drawer' ? 'text-blue-100' : 'text-slate-500'}`}>
+                                  تسوية الدرج بالمبلغ الفعلي دون المساس بأرباح المحل
+                                </span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 

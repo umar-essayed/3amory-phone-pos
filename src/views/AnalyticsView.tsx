@@ -603,8 +603,15 @@ export const AnalyticsView: React.FC = () => {
                         {inv.paymentMethod === 'debt' && 'آجل'}
                       </span>
                     </td>
-                    <td className="p-3 font-mono font-black text-slate-900">
-                      {inv.total.toLocaleString()} {cur}
+                    <td className="p-3">
+                      <div className="font-mono font-black text-slate-900">
+                        {inv.total.toLocaleString()} {cur}
+                      </div>
+                      {inv.discount && inv.discount > 0 ? (
+                        <div className="text-[10px] text-rose-600 font-bold">
+                          خصم: -{inv.discount.toLocaleString()} {cur}
+                        </div>
+                      ) : null}
                     </td>
                     <td className="p-3 font-mono font-black text-emerald-600">
                       +{inv.totalProfit.toLocaleString()} {cur}

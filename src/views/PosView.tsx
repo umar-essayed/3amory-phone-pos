@@ -362,8 +362,8 @@ export const PosView: React.FC<{
     const targetShiftId = openShift.id;
     const invoiceNum = `INV-${Date.now().toString().slice(-6)}`;
     const invoiceId = `inv_${Date.now()}`;
-    const totalAmount = subtotal;
-    const quickProfit = Math.max(0, totalAmount - totalCost);
+    const totalAmount = grandTotal;
+    const quickProfit = Math.max(0, grandTotal - totalCost);
 
     const quickInvoice: SaleInvoice = {
       id: invoiceId,
@@ -374,10 +374,10 @@ export const PosView: React.FC<{
       customerPhone: customerPhone.trim() || undefined,
       items: cartItems,
       subtotal,
-      discount: 0,
+      discount: discountVal,
       tax: 0,
-      total: totalAmount,
-      paidAmount: totalAmount,
+      total: grandTotal,
+      paidAmount: grandTotal,
       remainingAmount: 0,
       paymentMethod: 'cash',
       totalProfit: quickProfit,
@@ -871,7 +871,7 @@ export const PosView: React.FC<{
               onClick={handleQuickCashSale}
               disabled={cartItems.length === 0}
               className="w-full rounded-2xl bg-gradient-to-r from-amber-500 via-amber-600 to-orange-600 hover:from-amber-600 hover:to-orange-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black text-sm py-3.5 shadow-md hover:shadow-lg transition active:scale-[0.99] cursor-pointer flex items-center justify-center gap-2"
-              title="إتمام فوري للبيع نقداً (كاش) بدون خصم أو خطوات إضافية"
+              title="إتمام فوري للبيع نقداً (كاش) مع تطبيق الخصم فوراً"
             >
               <Zap className="h-5 w-5 text-amber-200 fill-amber-200" />
               <span>⚡ إتمام سريع (كاش فوري)</span>

@@ -252,6 +252,7 @@ export interface Shift {
   fawrySalesTotal?: number;
   fawryNetProfit?: number;
   totalNetProfit?: number;
+  shortageAction?: 'net_profit' | 'drawer';
   closingWallets?: Record<string, number>;
   closedAt?: string;
   notes?: string;

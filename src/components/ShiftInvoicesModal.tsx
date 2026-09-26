@@ -414,6 +414,12 @@ export const ShiftInvoicesModal: React.FC<ShiftInvoicesModalProps> = ({
                                   {inv.paymentMethod === 'instapay' && 'إنستاباي'}
                                   {inv.paymentMethod === 'debt' && 'آجل'}
                                 </span>
+
+                                {inv.discount && inv.discount > 0 ? (
+                                  <span className="text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">
+                                    خصم: {inv.discount.toLocaleString()} {cur}
+                                  </span>
+                                ) : null}
                               </div>
 
                               <div className="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -438,10 +444,20 @@ export const ShiftInvoicesModal: React.FC<ShiftInvoicesModalProps> = ({
                           {/* Amount & Actions */}
                           <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100">
                             <div className="text-left">
+                              {inv.discount && inv.discount > 0 ? (
+                                <div className="text-[10px] text-slate-400 line-through font-mono">
+                                  {(inv.subtotal || (inv.total + inv.discount)).toLocaleString()} {cur}
+                                </div>
+                              ) : null}
                               <span className="text-xs text-slate-400 block">الإجمالي:</span>
                               <span className="font-mono font-black text-base text-slate-900">
                                 {inv.total.toLocaleString()} {cur}
                               </span>
+                              {inv.discount && inv.discount > 0 ? (
+                                <span className="font-mono text-[10px] text-rose-600 font-bold block">
+                                  (خصم {inv.discount.toLocaleString()} {cur})
+                                </span>
+                              ) : null}
                               {inv.returnedAmount && inv.returnedAmount > 0 ? (
                                 <span className="font-mono text-[11px] text-amber-700 font-bold block">
                                   (تم رد {inv.returnedAmount.toLocaleString()} {cur})
@@ -527,6 +543,26 @@ export const ShiftInvoicesModal: React.FC<ShiftInvoicesModalProps> = ({
                                 </div>
                               ))}
                             </div>
+
+                            {inv.discount && inv.discount > 0 ? (
+                              <div className="mt-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs flex flex-wrap items-center justify-between gap-2">
+                                <span className="text-slate-600">
+                                  مجموع البنود:{' '}
+                                  <strong className="font-mono text-slate-800">
+                                    {(inv.subtotal || inv.total + inv.discount).toLocaleString()} {cur}
+                                  </strong>
+                                </span>
+                                <span className="text-rose-600 font-bold">
+                                  الخصم المطبق: -{inv.discount.toLocaleString()} {cur}
+                                </span>
+                                <span className="text-slate-900 font-black">
+                                  الصافي المطلوب:{' '}
+                                  <strong className="font-mono text-emerald-700">
+                                    {inv.total.toLocaleString()} {cur}
+                                  </strong>
+                                </span>
+                              </div>
+                            ) : null}
 
                             {inv.returnReason && (
                               <div className="mt-3 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center gap-2">
