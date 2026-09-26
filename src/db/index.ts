@@ -242,7 +242,7 @@ async function doInitializeDatabase() {
           return sum + (item.unitPrice - buyPrice) * soldQty;
         }, 0);
         const accurateProfit = Math.max(0, calculatedItemsProfit - (inv.discount || 0));
-        if (inv.totalProfit !== accurateProfit && accurateProfit > 0) {
+        if (inv.totalProfit !== accurateProfit) {
           await db.invoices.update(inv.id, { totalProfit: accurateProfit });
         }
       }

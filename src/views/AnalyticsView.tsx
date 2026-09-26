@@ -60,9 +60,9 @@ export const AnalyticsView: React.FC = () => {
     return matchesDate && matchesSearch;
   });
 
-  // Calculate invoice profit by subtracting wholesale cost from selling price
+  // Calculate invoice profit by subtracting wholesale cost from selling price, deducting any discounts
   const getInvoiceNetProfit = (inv: SaleInvoice) => {
-    if (!inv.items || inv.items.length === 0) return inv.totalProfit || 0;
+    if (!inv.items || inv.items.length === 0) return Math.max(0, (inv.totalProfit || 0) - (inv.discount || 0));
     const itemsGrossProfit = inv.items.reduce((sum, item) => {
       const wholesale = item.costPrice > 0 ? item.costPrice : ((item as any).wholesalePrice || 0);
       const returnedQty = item.returnedQuantity || 0;
@@ -614,7 +614,7 @@ export const AnalyticsView: React.FC = () => {
                       ) : null}
                     </td>
                     <td className="p-3 font-mono font-black text-emerald-600">
-                      +{inv.totalProfit.toLocaleString()} {cur}
+                      +{getInvoiceNetProfit(inv).toLocaleString()} {cur}
                     </td>
                     <td className="p-3 text-center">
                       <button

@@ -455,7 +455,7 @@ export const PrintModal: React.FC = () => {
                   </div>
                   <div className="flex justify-between font-bold border-t pt-1">
                     <span>الكاش المفترض بالدرج (السيستم):</span>
-                    <span>{(shift.closingCashSystem || 0).toLocaleString()} {settings.currency || 'ج.م'}</span>
+                    <span>{((shift as any).expectedClosingCashSystem || shift.closingCashSystem || 0).toLocaleString()} {settings.currency || 'ج.م'}</span>
                   </div>
                   <div className="flex justify-between font-bold border-t pt-1">
                     <span>الكاش الفعلي المعدود بالدرج:</span>
@@ -475,6 +475,12 @@ export const PrintModal: React.FC = () => {
                       {(shift.cashDifference || 0) < 0 && `عجز ${shift.cashDifference} ${settings.currency || 'ج.م'}`}
                     </span>
                   </div>
+                  {shift.notes && (
+                    <div className="text-[10px] bg-slate-100 p-2 rounded border border-slate-300 text-slate-800 mt-2">
+                      <span className="font-bold block mb-0.5">ملاحظات الجرد والتسوية:</span>
+                      <p className="whitespace-pre-line leading-relaxed">{shift.notes}</p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

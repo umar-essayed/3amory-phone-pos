@@ -238,6 +238,7 @@ export interface Shift {
   openingCash: number;
   openingWallets: Record<string, number>;
   closingCashSystem: number;
+  expectedClosingCashSystem?: number;
   closingCashActual: number;
   cashDifference: number; // actual - system
   totalSalesCash: number;
