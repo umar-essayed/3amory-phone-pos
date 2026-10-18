@@ -14,6 +14,9 @@ import {
   Layers,
   History,
   Zap,
+  Edit2,
+  Trash2,
+  X,
 } from 'lucide-react';
 import { db, DEFAULT_SETTINGS } from '../db';
 import { triggerPrint } from '../services/printer';
@@ -30,7 +33,8 @@ export const ShiftsView: React.FC<{
   cashierName,
   currentUser,
 }) => {
-  const { showAlert, showToast } = useModal();
+  const isAdmin = !currentUser || currentUser.role === 'owner' || currentUser.role === 'manager';
+  const { showAlert, showConfirm, showToast } = useModal();
   const activeShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
   const shiftsHistory =
     useLiveQuery(() => db.shifts.orderBy('startTime').reverse().limit(50).toArray()) || [];
@@ -111,6 +115,7 @@ export const ShiftsView: React.FC<{
   const [expenseTitle, setExpenseTitle] = useState('');
   const [expenseAmount, setExpenseAmount] = useState('');
   const [expenseCategory, setExpenseCategory] = useState('نثريات وبوفيه');
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
 
   // Handle Add Expense
   const handleAddExpense = async (e: React.FormEvent) => {
@@ -150,6 +155,65 @@ export const ShiftsView: React.FC<{
     setExpenseTitle('');
     setExpenseAmount('');
     showToast('تم تسجيل المصروف النثري وخصمه من الدرج بنجاح');
+  };
+
+  // Handle Save Edited Expense (Admin Only)
+  const handleSaveEditedExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingExpense || !currentShiftId) return;
+
+    const oldExp = await db.expenses.get(editingExpense.id);
+    if (!oldExp) return;
+
+    const oldAmount = oldExp.amount || 0;
+    const newAmount = Number(editingExpense.amount) || 0;
+    const diff = newAmount - oldAmount;
+
+    await db.transaction('rw', [db.expenses, db.shifts], async () => {
+      await db.expenses.update(editingExpense.id, {
+        title: editingExpense.title.trim(),
+        category: editingExpense.category,
+        amount: newAmount,
+      });
+
+      if (diff !== 0) {
+        const shift = await db.shifts.get(currentShiftId);
+        if (shift) {
+          await db.shifts.update(currentShiftId, {
+            closingCashSystem: shift.closingCashSystem - diff,
+            totalExpenses: Math.max(0, shift.totalExpenses + diff),
+          });
+        }
+      }
+    });
+
+    setEditingExpense(null);
+    showToast('تم تعديل المصروف وتحديث رصيد الدرج بنجاح');
+  };
+
+  // Handle Delete Expense (Admin Only)
+  const handleDeleteExpense = async (exp: Expense) => {
+    const confirmed = await showConfirm(
+      `هل أنت متأكد من حذف المصروف (${exp.title}) بقيمة ${exp.amount.toLocaleString()}؟ سيتم إرجاع المبلغ لحساب الدرج تلقائياً.`,
+      'تأكيد حذف المصروف',
+      { confirmText: 'حذف المصروف', cancelText: 'إلغاء', danger: true }
+    );
+    if (!confirmed) return;
+
+    await db.transaction('rw', [db.expenses, db.shifts], async () => {
+      await db.expenses.delete(exp.id);
+      if (currentShiftId) {
+        const shift = await db.shifts.get(currentShiftId);
+        if (shift) {
+          await db.shifts.update(currentShiftId, {
+            closingCashSystem: shift.closingCashSystem + exp.amount,
+            totalExpenses: Math.max(0, shift.totalExpenses - exp.amount),
+          });
+        }
+      }
+    });
+
+    showToast('تم حذف المصروف وإعادة المبلغ للدرج');
   };
 
   // Handle Close Shift
@@ -441,9 +505,31 @@ export const ShiftsView: React.FC<{
                   <strong className="text-slate-800 block">{exp.title}</strong>
                   <span className="text-[10px] text-slate-400">{exp.category}</span>
                 </div>
-                <span className="font-mono font-black text-red-700 text-sm">
-                  -{exp.amount.toLocaleString()} {settings?.currency || 'ج'}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-black text-red-700 text-sm">
+                    -{exp.amount.toLocaleString()} {settings?.currency || 'ج'}
+                  </span>
+                  {isAdmin && (
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setEditingExpense({ ...exp })}
+                        title="تعديل المصروف (مسؤول)"
+                        className="p-1 rounded-lg hover:bg-red-100 text-slate-500 hover:text-indigo-600 transition cursor-pointer"
+                      >
+                        <Edit2 className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteExpense(exp)}
+                        title="حذف المصروف وإعادة المبلغ للدرج (مسؤول)"
+                        className="p-1 rounded-lg hover:bg-red-200 text-slate-400 hover:text-rose-600 transition cursor-pointer"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -977,6 +1063,89 @@ export const ShiftsView: React.FC<{
           currentCashierName={cashierName}
           onClose={() => setSelectedShiftForInvoices(null)}
         />
+      )}
+
+      {/* Modal: Edit Expense (Admin Only) */}
+      {editingExpense && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b pb-3 mb-4">
+              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <Edit2 className="h-4 w-4 text-amber-600" />
+                <span>تعديل المصروف النثري (مسؤول)</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingExpense(null)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditedExpense} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">بيان المصروف *</label>
+                <input
+                  type="text"
+                  value={editingExpense.title}
+                  onChange={(e) => setEditingExpense({ ...editingExpense, title: e.target.value })}
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-xs focus:border-amber-600 focus:outline-none"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">التصنيف</label>
+                <select
+                  value={editingExpense.category}
+                  onChange={(e) => setEditingExpense({ ...editingExpense, category: e.target.value })}
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-xs bg-white focus:border-amber-600 focus:outline-none"
+                >
+                  <option value="نثريات وبوفيه">نثريات وبوفيه</option>
+                  <option value="فواتير وكهرباء">فواتير وكهرباء</option>
+                  <option value="صيانة المحل">صيانة المحل</option>
+                  <option value="رواتب وسلف">رواتب وسلف</option>
+                  <option value="أخرى">أخرى</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  المبلغ ({settings?.currency || 'ج'}) *
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  value={editingExpense.amount}
+                  onChange={(e) => setEditingExpense({ ...editingExpense, amount: parseFloat(e.target.value) || 0 })}
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-xs font-mono font-bold focus:border-amber-600 focus:outline-none"
+                  required
+                />
+              </div>
+
+              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-[11px] text-amber-800 font-medium">
+                تنبيه: سيتم تلقائياً تحديث رصيد الدرج الفعلي والمسجل بالفرق في قيمة المصروف فور حفظ التعديل.
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t">
+                <button
+                  type="button"
+                  onClick={() => setEditingExpense(null)}
+                  className="rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-xl bg-amber-600 hover:bg-amber-700 text-white px-5 py-2 text-xs font-bold shadow cursor-pointer"
+                >
+                  حفظ التعديل وتحديث الدرج
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

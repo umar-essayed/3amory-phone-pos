@@ -26,9 +26,10 @@ import {
 } from 'lucide-react';
 import { db } from '../db';
 import { useModal } from '../context/ModalContext';
-import type { Customer, Supplier, DebtTransaction, StoreWallet } from '../types';
+import type { Customer, Supplier, DebtTransaction, StoreWallet, User } from '../types';
 
-export const AccountsView: React.FC = () => {
+export const AccountsView: React.FC<{ currentUser?: User | null }> = ({ currentUser }) => {
+  const isAdmin = !currentUser || currentUser.role === 'owner' || currentUser.role === 'manager';
   const { showAlert, showConfirm, showToast } = useModal();
   const customers = useLiveQuery(() => db.customers.toArray()) || [];
   const suppliers = useLiveQuery(() => db.suppliers.toArray()) || [];
@@ -52,6 +53,7 @@ export const AccountsView: React.FC = () => {
   // Edit Modal
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+  const [editingDebtTx, setEditingDebtTx] = useState<DebtTransaction | null>(null);
 
   // VIP Cash Customer Modal & Operations
   const [vipCustomer, setVipCustomer] = useState<Customer | null>(null);
@@ -623,6 +625,112 @@ export const AccountsView: React.FC = () => {
     setAdjustNote('');
   };
 
+  const handleSaveEditedDebtTx = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDebtTx) return;
+
+    const originalTx = await db.debtTransactions.get(editingDebtTx.id);
+    if (!originalTx) return;
+
+    const oldAmount = originalTx.amount || 0;
+    const newAmount = Number(editingDebtTx.amount) || 0;
+    const diff = newAmount - oldAmount;
+
+    await db.transaction('rw', [db.debtTransactions, db.customers, db.suppliers], async () => {
+      // 1. Update the transaction
+      await db.debtTransactions.update(editingDebtTx.id, {
+        amount: newAmount,
+        notes: editingDebtTx.notes,
+        createdAt: editingDebtTx.createdAt,
+      });
+
+      // 2. Adjust party balance if amount changed
+      if (diff !== 0) {
+        if (originalTx.partyType === 'supplier') {
+          const sup = await db.suppliers.get(originalTx.partyId);
+          if (sup) {
+            if (originalTx.type === 'payment') {
+              const newPaid = Math.max(0, (sup.totalPaid || 0) + diff);
+              const newOwed = Math.max(0, (sup.totalOwed || 0) - diff);
+              await db.suppliers.update(sup.id, { totalPaid: newPaid, totalOwed: newOwed });
+            } else {
+              const newOwed = Math.max(0, (sup.totalOwed || 0) + diff);
+              await db.suppliers.update(sup.id, { totalOwed: newOwed });
+            }
+          }
+        } else {
+          const cust = await db.customers.get(originalTx.partyId);
+          if (cust) {
+            if (originalTx.type === 'payment') {
+              const newPaid = Math.max(0, (cust.totalPaid || 0) + diff);
+              const newDebt = Math.max(0, (cust.totalDebt || 0) - diff);
+              await db.customers.update(cust.id, { totalPaid: newPaid, totalDebt: newDebt });
+            } else if (originalTx.type === 'vip_cash_transfer') {
+              const newVipBal = (cust.vipBalance || 0) + diff;
+              await db.customers.update(cust.id, { vipBalance: newVipBal });
+            } else if (originalTx.type === 'vip_cash_receive') {
+              const newVipBal = (cust.vipBalance || 0) - diff;
+              await db.customers.update(cust.id, { vipBalance: newVipBal });
+            } else {
+              const newDebt = Math.max(0, (cust.totalDebt || 0) + diff);
+              await db.customers.update(cust.id, { totalDebt: newDebt });
+            }
+          }
+        }
+      }
+    });
+
+    setEditingDebtTx(null);
+    showToast('تم تعديل الحركة وضبط الرصيد بنجاح!');
+  };
+
+  const handleDeleteDebtTx = async (tx: DebtTransaction) => {
+    const confirmed = await showConfirm(
+      `هل أنت متأكد من حذف هذه الحركة بمبلغ ${tx.amount.toLocaleString()} ${cur}؟ سيتم تعديل رصيد الحساب تلقائياً وإلغاء أثرها.`,
+      'تأكيد حذف حركة الأجندة',
+      { confirmText: 'حذف الحركة', cancelText: 'إلغاء', danger: true }
+    );
+    if (!confirmed) return;
+
+    await db.transaction('rw', [db.debtTransactions, db.customers, db.suppliers], async () => {
+      if (tx.partyType === 'supplier') {
+        const sup = await db.suppliers.get(tx.partyId);
+        if (sup) {
+          if (tx.type === 'payment') {
+            const newPaid = Math.max(0, (sup.totalPaid || 0) - tx.amount);
+            const newOwed = (sup.totalOwed || 0) + tx.amount;
+            await db.suppliers.update(sup.id, { totalPaid: newPaid, totalOwed: newOwed });
+          } else {
+            const newOwed = Math.max(0, (sup.totalOwed || 0) - tx.amount);
+            await db.suppliers.update(sup.id, { totalOwed: newOwed });
+          }
+        }
+      } else {
+        const cust = await db.customers.get(tx.partyId);
+        if (cust) {
+          if (tx.type === 'payment') {
+            const newPaid = Math.max(0, (cust.totalPaid || 0) - tx.amount);
+            const newDebt = (cust.totalDebt || 0) + tx.amount;
+            await db.customers.update(cust.id, { totalPaid: newPaid, totalDebt: newDebt });
+          } else if (tx.type === 'vip_cash_transfer') {
+            const newVipBal = (cust.vipBalance || 0) - tx.amount;
+            await db.customers.update(cust.id, { vipBalance: newVipBal });
+          } else if (tx.type === 'vip_cash_receive') {
+            const newVipBal = (cust.vipBalance || 0) + tx.amount;
+            await db.customers.update(cust.id, { vipBalance: newVipBal });
+          } else {
+            const newDebt = Math.max(0, (cust.totalDebt || 0) - tx.amount);
+            await db.customers.update(cust.id, { totalDebt: newDebt });
+          }
+        }
+      }
+
+      await db.debtTransactions.delete(tx.id);
+    });
+
+    showToast('تم حذف الحركة وضبط الرصيد بنجاح!');
+  };
+
   const totalCustomerDebt = customers.reduce((s, c) => s + (c.totalDebt || 0), 0);
   const totalSupplierDebt = suppliers.reduce((s, s2) => s + (s2.totalOwed || 0), 0);
 
@@ -956,30 +1064,34 @@ export const AccountsView: React.FC = () => {
                         تسديد
                       </button>
                     )}
-                    <button
-                      onClick={() => setEditingCustomer({ ...customer })}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-blue-50 text-blue-600 text-[11px] font-bold hover:bg-blue-100 transition cursor-pointer"
-                    >
-                      <Edit2 className="h-3.5 w-3.5" />
-                      تعديل
-                    </button>
-                    <button
-                      onClick={async () => {
-                        const confirmed = await showConfirm(
-                          `هل أنت متأكد من حذف حساب العميل "${customer.name}"؟`,
-                          'تأكيد حذف عميل',
-                          { confirmText: 'حذف العميل', cancelText: 'إلغاء', danger: true }
-                        );
-                        if (confirmed) {
-                          await db.customers.delete(customer.id);
-                          showToast(`تم حذف العميل ${customer.name}`);
-                        }
-                      }}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-red-50 text-red-600 text-[11px] font-bold hover:bg-red-100 transition cursor-pointer"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      حذف
-                    </button>
+                    {isAdmin && (
+                      <>
+                        <button
+                          onClick={() => setEditingCustomer({ ...customer })}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-blue-50 text-blue-600 text-[11px] font-bold hover:bg-blue-100 transition cursor-pointer"
+                        >
+                          <Edit2 className="h-3.5 w-3.5" />
+                          تعديل
+                        </button>
+                        <button
+                          onClick={async () => {
+                            const confirmed = await showConfirm(
+                              `هل أنت متأكد من حذف حساب العميل "${customer.name}"؟`,
+                              'تأكيد حذف عميل',
+                              { confirmText: 'حذف العميل', cancelText: 'إلغاء', danger: true }
+                            );
+                            if (confirmed) {
+                              await db.customers.delete(customer.id);
+                              showToast(`تم حذف العميل ${customer.name}`);
+                            }
+                          }}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-red-50 text-red-600 text-[11px] font-bold hover:bg-red-100 transition cursor-pointer"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          حذف
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               );
@@ -1059,30 +1171,34 @@ export const AccountsView: React.FC = () => {
                         دفع
                       </button>
                     )}
-                    <button
-                      onClick={() => setEditingSupplier({ ...supplier })}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-blue-50 text-blue-600 text-[11px] font-bold hover:bg-blue-100 transition cursor-pointer"
-                    >
-                      <Edit2 className="h-3.5 w-3.5" />
-                      تعديل
-                    </button>
-                    <button
-                      onClick={async () => {
-                        const confirmed = await showConfirm(
-                          `هل أنت متأكد من حذف حساب المورد "${supplier.name}"؟`,
-                          'تأكيد حذف مورد',
-                          { confirmText: 'حذف المورد', cancelText: 'إلغاء', danger: true }
-                        );
-                        if (confirmed) {
-                          await db.suppliers.delete(supplier.id);
-                          showToast(`تم حذف المورد ${supplier.name}`);
-                        }
-                      }}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-red-50 text-red-600 text-[11px] font-bold hover:bg-red-100 transition cursor-pointer"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      حذف
-                    </button>
+                    {isAdmin && (
+                      <>
+                        <button
+                          onClick={() => setEditingSupplier({ ...supplier })}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-blue-50 text-blue-600 text-[11px] font-bold hover:bg-blue-100 transition cursor-pointer"
+                        >
+                          <Edit2 className="h-3.5 w-3.5" />
+                          تعديل
+                        </button>
+                        <button
+                          onClick={async () => {
+                            const confirmed = await showConfirm(
+                              `هل أنت متأكد من حذف حساب المورد "${supplier.name}"؟`,
+                              'تأكيد حذف مورد',
+                              { confirmText: 'حذف المورد', cancelText: 'إلغاء', danger: true }
+                            );
+                            if (confirmed) {
+                              await db.suppliers.delete(supplier.id);
+                              showToast(`تم حذف المورد ${supplier.name}`);
+                            }
+                          }}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-red-50 text-red-600 text-[11px] font-bold hover:bg-red-100 transition cursor-pointer"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          حذف
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               );
@@ -1139,6 +1255,9 @@ export const AccountsView: React.FC = () => {
                 await db.customers.update(editingCustomer.id, {
                   name: editingCustomer.name,
                   phone: editingCustomer.phone,
+                  totalDebt: Number(editingCustomer.totalDebt) || 0,
+                  totalPaid: Number(editingCustomer.totalPaid) || 0,
+                  vipBalance: Number(editingCustomer.vipBalance) || 0,
                   isVipCash: editingCustomer.isVipCash,
                   defaultWalletId: editingCustomer.isVipCash ? editingCustomer.defaultWalletId : undefined,
                   notes: editingCustomer.notes,
@@ -1166,6 +1285,33 @@ export const AccountsView: React.FC = () => {
                   onChange={(e) => setEditingCustomer((p) => p ? { ...p, phone: e.target.value } : null)}
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-mono focus:border-blue-500 focus:outline-none"
                 />
+              </div>
+
+              {/* Financial Balances Editing (Admin Only) */}
+              <div className="grid grid-cols-2 gap-3 bg-red-50/60 p-3 rounded-2xl border border-red-200">
+                <div>
+                  <label className="block text-xs font-bold text-red-900 mb-1.5">الدين الحالي عليه *</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={editingCustomer.totalDebt ?? 0}
+                    onChange={(e) => setEditingCustomer((p) => p ? { ...p, totalDebt: Number(e.target.value) } : null)}
+                    className="w-full rounded-xl border border-red-300 bg-white p-2.5 text-sm font-mono font-bold focus:border-red-500 focus:outline-none"
+                    required
+                  />
+                  <span className="text-[10px] text-red-700">تعديل رصيد الدين</span>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">إجمالي المسدد منه</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={editingCustomer.totalPaid ?? 0}
+                    onChange={(e) => setEditingCustomer((p) => p ? { ...p, totalPaid: Number(e.target.value) } : null)}
+                    className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm font-mono font-bold focus:border-blue-500 focus:outline-none"
+                  />
+                  <span className="text-[10px] text-slate-500">إجمالي الدفعات</span>
+                </div>
               </div>
 
               <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-3.5 space-y-2.5">
@@ -1263,9 +1409,12 @@ export const AccountsView: React.FC = () => {
                   name: editingSupplier.name,
                   company: editingSupplier.company,
                   phone: editingSupplier.phone,
+                  totalOwed: Number(editingSupplier.totalOwed) || 0,
+                  totalPaid: Number(editingSupplier.totalPaid) || 0,
                   notes: editingSupplier.notes,
                 });
                 setEditingSupplier(null);
+                showToast(`تم حفظ تعديلات المورد ${editingSupplier.name} بنجاح`);
               }}
               className="p-6 space-y-4"
             >
@@ -1296,6 +1445,33 @@ export const AccountsView: React.FC = () => {
                   onChange={(e) => setEditingSupplier((p) => p ? { ...p, phone: e.target.value } : null)}
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-mono focus:border-blue-500 focus:outline-none"
                 />
+              </div>
+
+              {/* Financial Balances Editing (Admin Only) */}
+              <div className="grid grid-cols-2 gap-3 bg-amber-50/60 p-3 rounded-2xl border border-amber-200">
+                <div>
+                  <label className="block text-xs font-bold text-amber-900 mb-1.5">المستحق الحالي له *</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={editingSupplier.totalOwed ?? 0}
+                    onChange={(e) => setEditingSupplier((p) => p ? { ...p, totalOwed: Number(e.target.value) } : null)}
+                    className="w-full rounded-xl border border-amber-300 bg-white p-2.5 text-sm font-mono font-bold focus:border-amber-500 focus:outline-none"
+                    required
+                  />
+                  <span className="text-[10px] text-amber-700">تعديل أي دين مسجل خطأ</span>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">إجمالي المسدد له</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={editingSupplier.totalPaid ?? 0}
+                    onChange={(e) => setEditingSupplier((p) => p ? { ...p, totalPaid: Number(e.target.value) } : null)}
+                    className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm font-mono font-bold focus:border-blue-500 focus:outline-none"
+                  />
+                  <span className="text-[10px] text-slate-500">إجمالي الدفعات المسددة</span>
+                </div>
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">ملاحظات</label>
@@ -1607,6 +1783,7 @@ export const AccountsView: React.FC = () => {
                         <th className="py-2.5 px-3">قبل / بعد</th>
                         <th className="py-2.5 px-3">البيان / ملاحظات</th>
                         <th className="py-2.5 px-3">المسؤول</th>
+                        {isAdmin && <th className="py-2.5 px-3 text-center">إجراءات</th>}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -1646,6 +1823,26 @@ export const AccountsView: React.FC = () => {
                               {tx.notes || '—'}
                             </td>
                             <td className="py-3 px-3 text-slate-400 font-semibold">{tx.recordedBy}</td>
+                            {isAdmin && (
+                              <td className="py-3 px-3">
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    onClick={() => setEditingDebtTx({ ...tx })}
+                                    title="تعديل الحركة (مسؤول)"
+                                    className="p-1 rounded-lg hover:bg-slate-200 text-slate-600 hover:text-indigo-600 transition cursor-pointer"
+                                  >
+                                    <Edit2 className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteDebtTx(tx)}
+                                    title="حذف الحركة (مسؤول)"
+                                    className="p-1 rounded-lg hover:bg-rose-100 text-slate-400 hover:text-rose-600 transition cursor-pointer"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            )}
                           </tr>
                         );
                       })}
@@ -2053,6 +2250,7 @@ export const AccountsView: React.FC = () => {
                           <th className="py-2.5 px-3">الرصيد (قبل ➔ بعد)</th>
                           <th className="py-2.5 px-3">البيان وملاحظات</th>
                           <th className="py-2.5 px-3">المسؤول</th>
+                          {isAdmin && <th className="py-2.5 px-3 text-center">إجراءات</th>}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 bg-white">
@@ -2109,6 +2307,26 @@ export const AccountsView: React.FC = () => {
                                 {tx.notes || '—'}
                               </td>
                               <td className="py-3 px-3 text-slate-400 font-semibold">{tx.recordedBy}</td>
+                              {isAdmin && (
+                                <td className="py-3 px-3">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <button
+                                      onClick={() => setEditingDebtTx({ ...tx })}
+                                      title="تعديل الحركة (مسؤول)"
+                                      className="p-1 rounded-lg hover:bg-slate-200 text-slate-600 hover:text-indigo-600 transition cursor-pointer"
+                                    >
+                                      <Edit2 className="h-3.5 w-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteDebtTx(tx)}
+                                      title="حذف الحركة (مسؤول)"
+                                      className="p-1 rounded-lg hover:bg-rose-100 text-slate-400 hover:text-rose-600 transition cursor-pointer"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              )}
                             </tr>
                           );
                         })}
@@ -2128,6 +2346,86 @@ export const AccountsView: React.FC = () => {
                 إغلاق
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Edit Debt Transaction (Admin Only) */}
+      {editingDebtTx && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl flex flex-col gap-4 border border-slate-100 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="h-9 w-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                  <Edit2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-sm">تعديل حركة الأجندة</h3>
+                  <p className="text-[11px] text-slate-400 font-medium">
+                    الحساب: {editingDebtTx.partyName} ({editingDebtTx.partyType === 'supplier' ? 'مورد' : 'عميل'})
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEditingDebtTx(null)}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditedDebtTx} className="space-y-4">
+              <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200/60 text-[11px] text-amber-800 font-medium flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  تنبيه: عند تعديل المبلغ، سيقوم النظام تلقائياً بضبط رصيد {editingDebtTx.partyType === 'supplier' ? 'المورد' : 'العميل'} بناءً على فارق المبلغ للحفاظ على دقة الحسابات.
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  المبلغ ({cur}) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  required
+                  value={editingDebtTx.amount}
+                  onChange={(e) => setEditingDebtTx({ ...editingDebtTx, amount: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 font-mono font-bold text-base focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition"
+                  placeholder="0.00"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  البيان والملاحظات
+                </label>
+                <textarea
+                  rows={3}
+                  value={editingDebtTx.notes || ''}
+                  onChange={(e) => setEditingDebtTx({ ...editingDebtTx, notes: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-slate-800 text-xs focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition resize-none"
+                  placeholder="سبب الحركة أو تفاصيل إضافية..."
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md shadow-indigo-600/20 transition cursor-pointer"
+                >
+                  حفظ التعديلات وضبط الرصيد
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingDebtTx(null)}
+                  className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs transition cursor-pointer"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

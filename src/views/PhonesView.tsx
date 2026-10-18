@@ -21,9 +21,14 @@ import {
 import { db, seedSampleData } from '../db';
 import { triggerPrint } from '../services/printer';
 import { useModal } from '../context/ModalContext';
-import type { Phone, StoreSettings } from '../types';
+import type { Phone, StoreSettings, User } from '../types';
 
-export const PhonesView: React.FC = () => {
+interface PhonesViewProps {
+  currentUser?: User | null;
+}
+
+export const PhonesView: React.FC<PhonesViewProps> = ({ currentUser }) => {
+  const isAdmin = !currentUser || currentUser.role === 'owner' || currentUser.role === 'manager';
   const { showAlert, showConfirm, showToast } = useModal();
   const phones = useLiveQuery(() => db.phones.orderBy('createdAt').reverse().toArray()) || [];
   const settings = useLiveQuery(() => db.settings.get(1));
@@ -348,14 +353,16 @@ export const PhonesView: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setEditingPhone(p)}
-                    title="تعديل بيانات وسعر الهاتف"
-                    className="p-2 rounded-xl bg-slate-100 text-blue-600 hover:bg-blue-50 transition cursor-pointer"
-                  >
-                    <Edit className="h-4 w-4" />
-                  </button>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingPhone(p)}
+                      title="تعديل بيانات وسعر الهاتف (مسؤول)"
+                      className="p-2 rounded-xl bg-slate-100 text-blue-600 hover:bg-blue-50 transition cursor-pointer"
+                    >
+                      <Edit className="h-4 w-4" />
+                    </button>
+                  )}
                   {p.condition === 'used' && p.sellerInfo && (
                     <button
                       type="button"
@@ -374,23 +381,25 @@ export const PhonesView: React.FC = () => {
                       <FileCheck2 className="h-4 w-4" />
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const confirmed = await showConfirm(
-                        `هل أنت متأكد من حذف الجهاز (${p.name}) من المخزن نهائياً؟`,
-                        'تأكيد حذف هاتف',
-                        { confirmText: 'حذف الهاتف', cancelText: 'إلغاء', danger: true }
-                      );
-                      if (confirmed) {
-                        await db.phones.delete(p.id);
-                        showToast(`تم حذف ${p.name}`);
-                      }
-                    }}
-                    className="p-2 rounded-xl bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600 transition cursor-pointer"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const confirmed = await showConfirm(
+                          `هل أنت متأكد من حذف الجهاز (${p.name}) من المخزن نهائياً؟`,
+                          'تأكيد حذف هاتف',
+                          { confirmText: 'حذف الهاتف', cancelText: 'إلغاء', danger: true }
+                        );
+                        if (confirmed) {
+                          await db.phones.delete(p.id);
+                          showToast(`تم حذف ${p.name}`);
+                        }
+                      }}
+                      className="p-2 rounded-xl bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600 transition cursor-pointer"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -644,16 +653,25 @@ export const PhonesView: React.FC = () => {
           </div>
         </div>
       )}
-      {/* Modal: Edit Existing Phone */}
+      {/* Modal: Edit Existing Phone (Admin Only) */}
       {editingPhone && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs overflow-y-auto">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl my-8">
-            <div className="flex items-center justify-between border-b pb-4 mb-4">
-              <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
-                <Edit className="h-5 w-5 text-blue-600" />
-                <span>تعديل بيانات وسعر الهاتف</span>
-              </h3>
-              <button onClick={() => setEditingPhone(null)} className="text-slate-400 hover:text-slate-700">
+          <div className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-3xl bg-white shadow-2xl overflow-hidden my-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between px-6 py-4 bg-slate-900 text-white shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center">
+                  <Edit className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black">تعديل بيانات الهاتف الكاملة</h3>
+                  <p className="text-[11px] text-slate-400">تعديل كافة تفاصيل الجهاز والأسعار والأرقام التسلسلية</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingPhone(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg transition"
+              >
                 ✕
               </button>
             </div>
@@ -661,123 +679,312 @@ export const PhonesView: React.FC = () => {
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
+                if (!editingPhone.name || !editingPhone.imei1 || !editingPhone.sellPrice) {
+                  showAlert('يرجى ملء اسم الهاتف والـ IMEI وسعر البيع.', 'بيانات ناقصة', 'warning');
+                  return;
+                }
+
+                // Check duplicate IMEI if changed
+                const existing = await db.phones.where('imei1').equals(editingPhone.imei1.trim()).first();
+                if (existing && existing.id !== editingPhone.id) {
+                  showAlert(`تنبيه: رقم الـ IMEI (${editingPhone.imei1}) مسجل مسبقاً لجهاز آخر (${existing.name})!`, 'IMEI مكرر', 'error');
+                  return;
+                }
+
                 await db.phones.update(editingPhone.id, {
-                  name: editingPhone.name,
-                  storage: editingPhone.storage,
-                  color: editingPhone.color,
-                  batteryHealth: editingPhone.batteryHealth,
+                  name: editingPhone.name.trim(),
+                  brand: editingPhone.brand || '',
+                  model: editingPhone.model || '',
+                  condition: editingPhone.condition,
+                  imei1: editingPhone.imei1.trim(),
+                  imei2: editingPhone.imei2?.trim() || '',
+                  storage: editingPhone.storage || '',
+                  color: editingPhone.color || '',
+                  batteryHealth: editingPhone.condition === 'used' ? Number(editingPhone.batteryHealth) || undefined : undefined,
+                  physicalCondition: editingPhone.physicalCondition || '',
+                  hasBox: Boolean(editingPhone.hasBox),
+                  hasOriginalAccessories: Boolean(editingPhone.hasOriginalAccessories),
                   costPrice: Number(editingPhone.costPrice) || 0,
                   minSellPrice: Number(editingPhone.minSellPrice) || 0,
                   sellPrice: Number(editingPhone.sellPrice) || 0,
                   status: editingPhone.status,
-                  notes: editingPhone.notes,
+                  sellerInfo: editingPhone.sellerInfo,
+                  notes: editingPhone.notes || '',
                 });
+
+                showToast(`تم حفظ تعديلات ${editingPhone.name} بنجاح`);
                 setEditingPhone(null);
               }}
-              className="space-y-4"
+              className="flex-1 overflow-y-auto p-6 space-y-4 text-xs"
             >
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">اسم الهاتف والموديل</label>
-                <input
-                  type="text"
-                  value={editingPhone.name}
-                  onChange={(e) => setEditingPhone({ ...editingPhone, name: e.target.value })}
-                  className="w-full rounded-xl border border-slate-300 p-2.5 text-xs focus:border-blue-600 focus:outline-none"
-                  required
-                />
+              {/* Basic Info */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block font-bold text-slate-700 mb-1">
+                    اسم الهاتف بالكامل <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editingPhone.name}
+                    onChange={(e) => setEditingPhone({ ...editingPhone, name: e.target.value })}
+                    className="w-full rounded-xl border border-slate-300 p-2.5 focus:border-blue-600 focus:outline-none font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">الماركة (Brand)</label>
+                  <input
+                    type="text"
+                    value={editingPhone.brand || ''}
+                    onChange={(e) => setEditingPhone({ ...editingPhone, brand: e.target.value })}
+                    className="w-full rounded-xl border border-slate-300 p-2.5 focus:border-blue-600 focus:outline-none"
+                    placeholder="Apple, Samsung..."
+                  />
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              {/* IMEI & Condition */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">السعة</label>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    IMEI 1 <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editingPhone.imei1}
+                    onChange={(e) => setEditingPhone({ ...editingPhone, imei1: e.target.value })}
+                    className="w-full rounded-xl border border-slate-300 p-2 font-mono font-bold focus:border-blue-600 focus:outline-none bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">IMEI 2 (اختياري)</label>
+                  <input
+                    type="text"
+                    value={editingPhone.imei2 || ''}
+                    onChange={(e) => setEditingPhone({ ...editingPhone, imei2: e.target.value })}
+                    className="w-full rounded-xl border border-slate-300 p-2 font-mono focus:border-blue-600 focus:outline-none bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">حالة الجهاز</label>
+                  <select
+                    value={editingPhone.condition}
+                    onChange={(e) => setEditingPhone({ ...editingPhone, condition: e.target.value as 'new' | 'used' })}
+                    className="w-full rounded-xl border border-slate-300 p-2 font-bold bg-white focus:outline-none"
+                  >
+                    <option value="new">جديد (زيرو / متبرشم)</option>
+                    <option value="used">مستعمل</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Specs: Storage, Color, Status, Battery */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">السعة التخزينية</label>
                   <input
                     type="text"
                     value={editingPhone.storage}
                     onChange={(e) => setEditingPhone({ ...editingPhone, storage: e.target.value })}
-                    className="w-full rounded-xl border border-slate-300 p-2.5 text-xs focus:border-blue-600 focus:outline-none"
+                    className="w-full rounded-xl border border-slate-300 p-2 focus:border-blue-600 focus:outline-none"
+                    placeholder="128GB"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">اللون</label>
+                  <label className="block font-bold text-slate-700 mb-1">اللون</label>
                   <input
                     type="text"
                     value={editingPhone.color}
                     onChange={(e) => setEditingPhone({ ...editingPhone, color: e.target.value })}
-                    className="w-full rounded-xl border border-slate-300 p-2.5 text-xs focus:border-blue-600 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">سعر الشراء</label>
-                  <input
-                    type="number"
-                    value={editingPhone.costPrice}
-                    onChange={(e) => setEditingPhone({ ...editingPhone, costPrice: Number(e.target.value) })}
-                    className="w-full rounded-xl border border-slate-300 p-2 text-xs font-mono focus:border-blue-600 focus:outline-none"
+                    className="w-full rounded-xl border border-slate-300 p-2 focus:border-blue-600 focus:outline-none"
+                    placeholder="أزرق / أسود..."
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">الحد الأدنى</label>
-                  <input
-                    type="number"
-                    value={editingPhone.minSellPrice}
-                    onChange={(e) => setEditingPhone({ ...editingPhone, minSellPrice: Number(e.target.value) })}
-                    className="w-full rounded-xl border border-slate-300 p-2 text-xs font-mono focus:border-blue-600 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-blue-900 mb-1">سعر البيع</label>
-                  <input
-                    type="number"
-                    value={editingPhone.sellPrice}
-                    onChange={(e) => setEditingPhone({ ...editingPhone, sellPrice: Number(e.target.value) })}
-                    className="w-full rounded-xl border-2 border-blue-500 p-2 text-xs font-bold font-mono focus:border-blue-600 focus:outline-none"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">حالة التوفر</label>
+                  <label className="block font-bold text-slate-700 mb-1">حالة التوفر</label>
                   <select
                     value={editingPhone.status}
                     onChange={(e) => setEditingPhone({ ...editingPhone, status: e.target.value as any })}
-                    className="w-full rounded-xl border border-slate-300 p-2 text-xs font-bold bg-white focus:outline-none"
+                    className="w-full rounded-xl border border-slate-300 p-2 font-bold bg-white focus:outline-none"
                   >
                     <option value="available">متاح للبيع</option>
                     <option value="sold">تم البيع</option>
                     <option value="returned">مرتجع</option>
                   </select>
                 </div>
-                {editingPhone.condition === 'used' && (
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">نسبة البطارية (%)</label>
-                    <input
-                      type="number"
-                      value={editingPhone.batteryHealth || ''}
-                      onChange={(e) => setEditingPhone({ ...editingPhone, batteryHealth: Number(e.target.value) })}
-                      className="w-full rounded-xl border border-slate-300 p-2 text-xs font-mono focus:border-blue-600 focus:outline-none"
-                    />
-                  </div>
-                )}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">نسبة البطارية (%)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={editingPhone.batteryHealth ?? ''}
+                    onChange={(e) => setEditingPhone({ ...editingPhone, batteryHealth: e.target.value ? Number(e.target.value) : undefined })}
+                    className="w-full rounded-xl border border-slate-300 p-2 font-mono focus:border-blue-600 focus:outline-none"
+                    placeholder="100"
+                  />
+                </div>
               </div>
 
+              {/* Pricing */}
+              <div className="grid grid-cols-3 gap-3 bg-blue-50/50 p-3.5 rounded-2xl border border-blue-100">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">سعر الشراء / التكلفة</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={editingPhone.costPrice}
+                    onChange={(e) => setEditingPhone({ ...editingPhone, costPrice: Number(e.target.value) || 0 })}
+                    className="w-full rounded-xl border border-slate-300 p-2 font-mono font-bold focus:border-blue-600 focus:outline-none bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">الحد الأدنى للبيع</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={editingPhone.minSellPrice}
+                    onChange={(e) => setEditingPhone({ ...editingPhone, minSellPrice: Number(e.target.value) || 0 })}
+                    className="w-full rounded-xl border border-slate-300 p-2 font-mono font-bold focus:border-blue-600 focus:outline-none bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-blue-900 mb-1">
+                    سعر البيع المعلن <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    required
+                    value={editingPhone.sellPrice}
+                    onChange={(e) => setEditingPhone({ ...editingPhone, sellPrice: Number(e.target.value) || 0 })}
+                    className="w-full rounded-xl border-2 border-blue-500 p-2 font-mono font-black text-blue-700 focus:border-blue-600 focus:outline-none bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* Used Phone Details: Condition & Accessories */}
+              {editingPhone.condition === 'used' && (
+                <div className="p-3.5 bg-amber-50/60 rounded-2xl border border-amber-200/60 space-y-3">
+                  <div className="font-bold text-amber-900 text-[11px] flex items-center gap-1.5">
+                    <ShieldCheck className="h-4 w-4 text-amber-600" />
+                    بيانات الفحص والملحقات
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">الحالة الظاهرية</label>
+                      <input
+                        type="text"
+                        value={editingPhone.physicalCondition || ''}
+                        onChange={(e) => setEditingPhone({ ...editingPhone, physicalCondition: e.target.value })}
+                        className="w-full rounded-xl border border-slate-300 p-2 bg-white focus:outline-none"
+                        placeholder="كسر زيرو / به خدوش بسيطة..."
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 pt-5">
+                      <input
+                        type="checkbox"
+                        id="editHasBox"
+                        checked={Boolean(editingPhone.hasBox)}
+                        onChange={(e) => setEditingPhone({ ...editingPhone, hasBox: e.target.checked })}
+                        className="h-4 w-4 rounded text-blue-600"
+                      />
+                      <label htmlFor="editHasBox" className="font-bold text-slate-700 cursor-pointer">
+                        الكرتونة متوفرة
+                      </label>
+                    </div>
+                    <div className="flex items-center gap-2 pt-5">
+                      <input
+                        type="checkbox"
+                        id="editHasOriginalAcc"
+                        checked={Boolean(editingPhone.hasOriginalAccessories)}
+                        onChange={(e) => setEditingPhone({ ...editingPhone, hasOriginalAccessories: e.target.checked })}
+                        className="h-4 w-4 rounded text-blue-600"
+                      />
+                      <label htmlFor="editHasOriginalAcc" className="font-bold text-slate-700 cursor-pointer">
+                        المشتملات الأصلية متوفرة
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Seller Info */}
+                  <div className="pt-2 border-t border-amber-200/60">
+                    <p className="font-bold text-slate-700 mb-2">بيانات البائع / المتنازل (لعقد الشراء):</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <input
+                        type="text"
+                        placeholder="اسم البائع"
+                        value={editingPhone.sellerInfo?.name || ''}
+                        onChange={(e) => setEditingPhone({
+                          ...editingPhone,
+                          sellerInfo: {
+                            name: e.target.value,
+                            nationalId: editingPhone.sellerInfo?.nationalId || '',
+                            phone: editingPhone.sellerInfo?.phone || '',
+                          }
+                        })}
+                        className="w-full rounded-xl border border-slate-300 p-2 bg-white focus:outline-none"
+                      />
+                      <input
+                        type="text"
+                        placeholder="الرقم القومي"
+                        value={editingPhone.sellerInfo?.nationalId || ''}
+                        onChange={(e) => setEditingPhone({
+                          ...editingPhone,
+                          sellerInfo: {
+                            name: editingPhone.sellerInfo?.name || '',
+                            nationalId: e.target.value,
+                            phone: editingPhone.sellerInfo?.phone || '',
+                          }
+                        })}
+                        className="w-full rounded-xl border border-slate-300 p-2 bg-white focus:outline-none font-mono"
+                      />
+                      <input
+                        type="text"
+                        placeholder="رقم الهاتف"
+                        value={editingPhone.sellerInfo?.phone || ''}
+                        onChange={(e) => setEditingPhone({
+                          ...editingPhone,
+                          sellerInfo: {
+                            name: editingPhone.sellerInfo?.name || '',
+                            nationalId: editingPhone.sellerInfo?.nationalId || '',
+                            phone: e.target.value,
+                          }
+                        })}
+                        className="w-full rounded-xl border border-slate-300 p-2 bg-white focus:outline-none font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Notes */}
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">ملاحظات إضافية</label>
+                <textarea
+                  rows={2}
+                  value={editingPhone.notes || ''}
+                  onChange={(e) => setEditingPhone({ ...editingPhone, notes: e.target.value })}
+                  className="w-full rounded-xl border border-slate-300 p-2.5 focus:border-blue-600 focus:outline-none resize-none"
+                  placeholder="أي ملاحظات حول الصيانة السابقة أو حالة الجهاز..."
+                />
+              </div>
+
+              {/* Actions Footer */}
               <div className="flex justify-end gap-2 pt-3 border-t">
                 <button
                   type="button"
                   onClick={() => setEditingPhone(null)}
-                  className="rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                  className="rounded-xl border border-slate-300 px-5 py-2 font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer"
                 >
                   إلغاء
                 </button>
                 <button
                   type="submit"
-                  className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 text-xs font-bold shadow"
+                  className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 font-bold shadow-md shadow-blue-500/20 transition cursor-pointer"
                 >
-                  تحديث وحفظ التعديلات
+                  حفظ وتحديث الهاتف
                 </button>
               </div>
             </form>

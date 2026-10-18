@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { db, seedSampleData } from '../db';
 import { useModal } from '../context/ModalContext';
-import type { Accessory, ProductVariant } from '../types';
+import type { Accessory, ProductVariant, User } from '../types';
 
 const CATEGORIES = [
   'جرابات',
@@ -66,7 +66,12 @@ const EMPTY_FORM: FormState = {
   variants: [],
 };
 
-export const AccessoriesView: React.FC = () => {
+interface AccessoriesViewProps {
+  currentUser?: User | null;
+}
+
+export const AccessoriesView: React.FC<AccessoriesViewProps> = ({ currentUser }) => {
+  const isAdmin = !currentUser || currentUser.role === 'owner' || currentUser.role === 'manager';
   const { showAlert, showConfirm, showToast } = useModal();
   const accessories = useLiveQuery(() => db.accessories.orderBy('createdAt').reverse().toArray()) || [];
   const settings = useLiveQuery(() => db.settings.get(1));
@@ -153,6 +158,15 @@ export const AccessoriesView: React.FC = () => {
     e.preventDefault();
     if (!editingAcc) return;
 
+    const trimmedBarcode = editingAcc.barcode?.trim();
+    if (trimmedBarcode) {
+      const existing = await db.accessories.where('barcode').equals(trimmedBarcode).first();
+      if (existing && existing.id !== editingAcc.id) {
+        showAlert(`الباركود (${trimmedBarcode}) مسجل بالفعل لصنف آخر: "${existing.name}"!`, 'باركود مكرر', 'error');
+        return;
+      }
+    }
+
     let totalStock = Number(editingAcc.stockQuantity) || 0;
     if (editingAcc.hasVariants && editingAcc.variants && editingAcc.variants.length > 0) {
       totalStock = editingAcc.variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
@@ -163,6 +177,7 @@ export const AccessoriesView: React.FC = () => {
     await db.accessories.update(editingAcc.id, {
       name: editingAcc.name.trim(),
       category: editingAcc.category,
+      barcode: trimmedBarcode || editingAcc.barcode,
       costPrice: wholesale,
       sellPriceRetail: Number(editingAcc.sellPriceRetail),
       sellPriceWholesale: wholesale,
@@ -637,33 +652,37 @@ export const AccessoriesView: React.FC = () => {
                             <Barcode className="h-4 w-4" />
                           </button>
 
-                          <button
-                            type="button"
-                            onClick={() => setEditingAcc({ ...acc })}
-                            title="تعديل"
-                            className="p-1.5 rounded-xl bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-slate-600 transition cursor-pointer"
-                          >
-                            <Edit2 className="h-4 w-4" />
-                          </button>
+                          {isAdmin && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setEditingAcc({ ...acc })}
+                                title="تعديل بيانات الصنف (مسؤول)"
+                                className="p-1.5 rounded-xl bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-slate-600 transition cursor-pointer"
+                              >
+                                <Edit2 className="h-4 w-4" />
+                              </button>
 
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              const confirmed = await showConfirm(
-                                `هل أنت متأكد من حذف الصنف (${acc.name})؟`,
-                                'تأكيد حذف صنف',
-                                { confirmText: 'حذف الصنف', cancelText: 'إلغاء', danger: true }
-                              );
-                              if (confirmed) {
-                                await db.accessories.delete(acc.id);
-                                showToast(`تم حذف الصنف ${acc.name}`);
-                              }
-                            }}
-                            title="حذف"
-                            className="p-1.5 rounded-xl bg-slate-100 hover:bg-red-50 hover:text-red-600 text-slate-400 transition cursor-pointer"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const confirmed = await showConfirm(
+                                    `هل أنت متأكد من حذف الصنف (${acc.name})؟`,
+                                    'تأكيد حذف صنف',
+                                    { confirmText: 'حذف الصنف', cancelText: 'إلغاء', danger: true }
+                                  );
+                                  if (confirmed) {
+                                    await db.accessories.delete(acc.id);
+                                    showToast(`تم حذف الصنف ${acc.name}`);
+                                  }
+                                }}
+                                title="حذف الصنف (مسؤول)"
+                                className="p-1.5 rounded-xl bg-slate-100 hover:bg-red-50 hover:text-red-600 text-slate-400 transition cursor-pointer"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1090,8 +1109,9 @@ export const AccessoriesView: React.FC = () => {
                   <input
                     type="text"
                     value={editingAcc.barcode}
-                    disabled
-                    className="w-full rounded-xl border border-slate-200 bg-slate-100 p-3 text-sm font-mono text-slate-500 cursor-not-allowed"
+                    onChange={(e) => setEditingAcc({ ...editingAcc, barcode: e.target.value })}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-mono text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none transition"
+                    placeholder="رقم الباركود..."
                   />
                 </div>
               </div>

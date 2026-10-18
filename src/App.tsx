@@ -160,13 +160,13 @@ export function App() {
           {/* Dynamic Content View Container */}
           <main className="flex-1 overflow-y-auto p-4 sm:p-6">
             {activeTab === 'pos' && (
-              <PosView activeShiftId={shiftId} cashierName={currentCashier} />
+              <PosView activeShiftId={shiftId} cashierName={currentCashier} currentUser={currentUser} />
             )}
             {activeTab === 'wallets' && (
               <WalletsView activeShiftId={shiftId} cashierName={currentCashier} />
             )}
-            {activeTab === 'phones' && <PhonesView />}
-            {activeTab === 'accessories' && <AccessoriesView />}
+            {activeTab === 'phones' && <PhonesView currentUser={currentUser} />}
+            {activeTab === 'accessories' && <AccessoriesView currentUser={currentUser} />}
             {activeTab === 'barcode' && <BarcodeView />}
             {activeTab === 'maintenance' && (
               <MaintenanceView activeShiftId={shiftId} cashierName={currentCashier} />
@@ -175,7 +175,7 @@ export function App() {
               <ShiftsView activeShiftId={shiftId} cashierName={currentCashier} currentUser={currentUser} />
             )}
             {activeTab === 'analytics' && <AnalyticsView />}
-            {activeTab === 'accounts' && <AccountsView />}
+            {activeTab === 'accounts' && <AccountsView currentUser={currentUser} />}
             {activeTab === 'users' && <UsersView />}
             {activeTab === 'settings' && <SettingsView />}
           </main>

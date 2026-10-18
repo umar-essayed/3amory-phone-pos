@@ -16,28 +16,31 @@ import {
   Printer,
   PauseCircle,
   PlayCircle,
-  User,
+  User as UserIcon,
   Percent,
   Receipt,
   RotateCcw,
   X,
   Zap,
   AlertTriangle,
+  Edit2,
 } from 'lucide-react';
 import { db } from '../db';
 import { triggerPrint } from '../services/printer';
 import { useModal } from '../context/ModalContext';
 import { ShiftInvoicesModal } from '../components/ShiftInvoicesModal';
-import type { InvoiceItem, SaleInvoice, StoreSettings, Phone, Accessory, ProductVariant, Shift } from '../types';
+import type { InvoiceItem, SaleInvoice, StoreSettings, Phone, Accessory, ProductVariant, Shift, User } from '../types';
 
 export const PosView: React.FC<{
   activeShiftId: string;
   cashierName: string;
   onNavigateToShifts?: () => void;
+  currentUser?: User | null;
 }> = ({
   activeShiftId,
   cashierName,
   onNavigateToShifts,
+  currentUser,
 }) => {
   const { showAlert, showToast } = useModal();
   const openShift = useLiveQuery(() => db.shifts.where('status').equals('open').first());
@@ -56,6 +59,8 @@ export const PosView: React.FC<{
   const [heldOrders, setHeldOrders] = useState<{ id: string; name: string; items: InvoiceItem[] }[]>([]);
   const [showShiftInvoicesModal, setShowShiftInvoicesModal] = useState(false);
   const [variantPickerAcc, setVariantPickerAcc] = useState<Accessory | null>(null);
+  const [editingPriceIndex, setEditingPriceIndex] = useState<number | null>(null);
+  const [tempPriceInput, setTempPriceInput] = useState<string>('');
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   // Focus search input on mount
@@ -191,6 +196,28 @@ export const PosView: React.FC<{
 
   const removeItem = (index: number) => {
     setCartItems(cartItems.filter((_, i) => i !== index));
+    if (editingPriceIndex === index) {
+      setEditingPriceIndex(null);
+    }
+  };
+
+  const handleStartEditPrice = (index: number) => {
+    setEditingPriceIndex(index);
+    setTempPriceInput(cartItems[index].unitPrice.toString());
+  };
+
+  const handleSaveItemPrice = (index: number) => {
+    const newPrice = parseFloat(tempPriceInput);
+    if (isNaN(newPrice) || newPrice < 0) {
+      showAlert('يرجى إدخال سعر صحيح أكبر من أو يساوي الصفر.', 'سعر غير صالح', 'warning');
+      return;
+    }
+    const updated = [...cartItems];
+    updated[index].unitPrice = newPrice;
+    updated[index].totalPrice = updated[index].quantity * newPrice;
+    setCartItems(updated);
+    setEditingPriceIndex(null);
+    showToast(`تم تعديل السعر إلى ${newPrice.toLocaleString()} ${settings?.currency || 'ج'}`);
   };
 
   // Calculations
@@ -710,9 +737,53 @@ export const PosView: React.FC<{
                     {item.imei && (
                       <div className="text-[10px] font-mono text-slate-400">IMEI: {item.imei}</div>
                     )}
-                    <div className="text-[10px] text-slate-400 font-mono">
-                      {item.unitPrice.toLocaleString()} {settings?.currency || 'ج'}
-                    </div>
+                    {editingPriceIndex === idx ? (
+                      <div className="flex items-center gap-1 mt-1">
+                        <input
+                          type="number"
+                          step="any"
+                          value={tempPriceInput}
+                          onChange={(e) => setTempPriceInput(e.target.value)}
+                          className="w-20 px-1.5 py-0.5 text-xs font-mono font-bold bg-white border-2 border-blue-500 rounded-lg focus:outline-none"
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSaveItemPrice(idx);
+                            if (e.key === 'Escape') setEditingPriceIndex(null);
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSaveItemPrice(idx)}
+                          className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-[10px] font-bold cursor-pointer"
+                          title="حفظ السعر الجديد"
+                        >
+                          ✓
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingPriceIndex(null)}
+                          className="px-2 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-md text-[10px] cursor-pointer"
+                          title="إلغاء"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[10px] text-slate-500 font-mono font-bold">
+                          {item.unitPrice.toLocaleString()} {settings?.currency || 'ج'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleStartEditPrice(idx)}
+                          className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md transition cursor-pointer flex items-center gap-0.5"
+                          title="تعديل سعر المنتج في السلة"
+                        >
+                          <Edit2 className="h-3 w-3" />
+                          <span className="text-[9px] font-bold">تعديل السعر</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Quantity Controls */}
@@ -838,7 +909,7 @@ export const PosView: React.FC<{
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
-                <User className="h-4 w-4" />
+                <UserIcon className="h-4 w-4" />
                 <span>آجل / شكك</span>
               </button>
             </div>
